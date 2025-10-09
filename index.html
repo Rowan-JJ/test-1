@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>亚马逊 Listing 标题与五点助手</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="app-header">
+    <h1>亚马逊 Listing 标题与五点助手</h1>
+    <p>管理关键词、为不同 SKU 组合标题，并使用 DeepSeek 生成五点描述。</p>
+  </header>
+
+  <main class="layout">
+    <section class="panel">
+      <h2>关键词管理</h2>
+      <form id="keyword-form" class="keyword-form">
+        <div class="field-group">
+          <label for="keyword-text">关键词</label>
+          <input id="keyword-text" name="keyword" type="text" required placeholder="输入关键词" />
+        </div>
+        <div class="field-group">
+          <label for="keyword-heat">热度变化</label>
+          <input id="keyword-heat" name="heat" type="text" placeholder="例如：+12%" />
+        </div>
+        <div class="field-group">
+          <label for="keyword-rank">搜索排名</label>
+          <input id="keyword-rank" name="rank" type="text" placeholder="例如：Top 10" />
+        </div>
+        <div class="field-group color-picker">
+          <label for="keyword-color">颜色</label>
+          <input id="keyword-color" name="color" type="color" value="#4C6EF5" />
+        </div>
+        <button type="submit" class="primary">添加关键词</button>
+      </form>
+
+      <div class="library" id="keyword-library">
+        <div class="library-header">
+          <h3>关键词库</h3>
+          <button id="clear-library" class="secondary" type="button">清空所有关键词</button>
+        </div>
+        <p class="hint">拖动关键词滑块到任意 SKU 的标题框中，或单击复制信息。</p>
+        <div class="keyword-list" id="keyword-list"></div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>商品结构</h2>
+      <form id="spu-form" class="spu-form">
+        <div class="field-group">
+          <label for="spu-name">SPU 名称</label>
+          <input id="spu-name" type="text" required placeholder="例如：2024 夏季运动鞋" />
+        </div>
+        <div class="field-group">
+          <label for="spu-info">产品信息</label>
+          <textarea id="spu-info" rows="3" placeholder="输入材质、功能、卖点等描述"></textarea>
+        </div>
+        <button type="submit" class="primary">创建 SPU</button>
+      </form>
+
+      <div class="api-key-box">
+        <label for="api-key">DeepSeek API Key</label>
+        <input id="api-key" type="password" placeholder="请输入 API Key（不会保存在服务器）" />
+      </div>
+
+      <div id="spu-container" class="spu-container"></div>
+    </section>
+  </main>
+
+  <template id="sku-template">
+    <div class="sku-card" data-sku-id="">
+      <div class="sku-header">
+        <h4 class="sku-title"></h4>
+        <div class="sku-actions">
+          <button class="secondary sku-export" type="button">导出标题</button>
+          <button class="text danger sku-delete" type="button">删除 SKU</button>
+        </div>
+      </div>
+      <div class="title-dropzone" data-sku-id="">
+        <p class="placeholder">拖放关键词到此处构建标题</p>
+      </div>
+    </div>
+  </template>
+
+  <template id="spu-template">
+    <div class="spu-card" data-spu-id="">
+      <div class="spu-header">
+        <div>
+          <h3 class="spu-name"></h3>
+          <p class="spu-info"></p>
+        </div>
+        <div class="spu-actions">
+          <button class="secondary add-sku" type="button">新增 SKU</button>
+          <button class="primary generate-five" type="button">五点生成</button>
+          <button class="text danger delete-spu" type="button">删除 SPU</button>
+        </div>
+      </div>
+      <div class="five-point-output" hidden>
+        <h4>五点文案</h4>
+        <pre class="five-point-text"></pre>
+      </div>
+      <div class="sku-list"></div>
+    </div>
+  </template>
+
+  <template id="keyword-pill-template">
+    <div class="keyword-pill" draggable="true" data-keyword-id="">
+      <span class="keyword-label"></span>
+      <small class="keyword-meta"></small>
+      <button class="pill-remove" type="button" title="从标题中移除">×</button>
+    </div>
+  </template>
+
+  <footer class="app-footer">
+    <p>拖拽滑块组成标题，导出后即可生成用于亚马逊 Listing 的标题文本。</p>
+  </footer>
+
+  <script src="script.js" type="module"></script>
+</body>
+</html>
