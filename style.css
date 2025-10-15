@@ -76,6 +76,83 @@ p {
   z-index: 5;
 }
 
+.pending-keyword-panel {
+  gap: 16px;
+}
+
+.pending-keyword-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 12px;
+}
+
+.pending-item {
+  border: 1px dashed var(--border);
+  border-radius: 12px;
+  padding: 12px 16px;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  background: rgba(76, 110, 245, 0.04);
+}
+
+.pending-item.status-classifying {
+  border-color: rgba(76, 110, 245, 0.45);
+}
+
+.pending-item.status-error {
+  border-color: rgba(224, 49, 49, 0.4);
+  background: rgba(224, 49, 49, 0.05);
+}
+
+.pending-main {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.pending-main strong {
+  font-size: 0.95rem;
+}
+
+.pending-main small {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+.pending-controls {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  min-width: max-content;
+  margin-left: auto;
+}
+
+.pending-status {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+
+.pending-item.status-classifying .pending-status {
+  color: var(--accent);
+}
+
+.pending-item.status-error .pending-status {
+  color: var(--danger);
+}
+
+.pending-error {
+  font-size: 0.75rem;
+  color: var(--danger);
+  max-width: 220px;
+  text-align: right;
+}
+
 .keyword-form,
 .spu-form {
   display: grid;
@@ -202,10 +279,11 @@ button.text.danger:hover {
   align-items: center;
 }
 
+
 .keyword-list {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-  gap: 10px;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 8px;
 }
 
 .keyword-pill {
@@ -213,14 +291,14 @@ button.text.danger:hover {
   grid-template-columns: 1fr auto;
   gap: 2px;
   align-items: center;
-  padding: 8px 10px;
-  border-radius: 10px;
+  padding: 6px 8px;
+  border-radius: 8px;
   color: white;
-  font-size: 0.85rem;
+  font-size: 0.78rem;
   font-weight: 600;
   cursor: grab;
   position: relative;
-  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.15);
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.12);
   transition: transform 0.2s ease;
 }
 
@@ -230,7 +308,7 @@ button.text.danger:hover {
 
 .keyword-pill small {
   grid-column: 1 / -1;
-  font-size: 0.7rem;
+  font-size: 0.68rem;
   opacity: 0.85;
 }
 
@@ -256,13 +334,15 @@ button.text.danger:hover {
 }
 
 .title-dropzone {
+  position: relative;
   min-height: 70px;
   border: 2px dashed rgba(76, 110, 245, 0.3);
   border-radius: 12px;
   padding: 12px;
+  padding-bottom: 36px;
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 6px;
   align-items: flex-start;
   background: rgba(76, 110, 245, 0.05);
   transition: border-color 0.2s ease, background 0.2s ease;
@@ -271,6 +351,11 @@ button.text.danger:hover {
 .title-dropzone.active {
   border-color: var(--accent);
   background: rgba(76, 110, 245, 0.12);
+}
+
+.title-dropzone.over-limit {
+  border-color: rgba(224, 49, 49, 0.7);
+  background: rgba(224, 49, 49, 0.08);
 }
 
 .title-dropzone .keyword-pill {
@@ -287,6 +372,20 @@ button.text.danger:hover {
   color: var(--text-secondary);
   opacity: 0.7;
   margin: 0;
+}
+
+.title-dropzone .dropzone-footer {
+  position: absolute;
+  right: 10px;
+  bottom: 8px;
+  font-size: 0.72rem;
+  color: var(--text-secondary);
+  pointer-events: none;
+}
+
+.title-dropzone.over-limit .dropzone-footer {
+  color: var(--danger);
+  font-weight: 600;
 }
 
 .spu-board {
@@ -388,6 +487,18 @@ button.text.danger:hover {
 .sku-actions {
   display: flex;
   gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.sku-actions .sku-meta {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+.sku-actions .sku-meta.over {
+  color: var(--danger);
+  font-weight: 600;
 }
 
 .api-key-box {
@@ -399,6 +510,21 @@ button.text.danger:hover {
 .api-key-box input {
   border: 1px dashed var(--border);
   font-family: "Fira Code", monospace;
+}
+
+.settings-box {
+  border: 1px dashed var(--border);
+  border-radius: 14px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  background: rgba(76, 110, 245, 0.04);
+}
+
+.settings-box h3 {
+  margin: 0;
+  font-size: 1rem;
 }
 
 .five-point-output {
@@ -414,6 +540,7 @@ button.text.danger:hover {
 }
 
 .bulk-sku-panel,
+.bulk-keyword-panel,
 .five-point-panel {
   border: 1px dashed var(--border);
   border-radius: 12px;
@@ -422,6 +549,7 @@ button.text.danger:hover {
 }
 
 .bulk-sku-panel summary,
+.bulk-keyword-panel summary,
 .five-point-panel summary {
   display: flex;
   align-items: center;
@@ -436,16 +564,19 @@ button.text.danger:hover {
 }
 
 .bulk-sku-panel summary:hover,
+.bulk-keyword-panel summary:hover,
 .five-point-panel summary:hover {
   color: var(--accent);
 }
 
 .bulk-sku-panel summary:hover::after,
+.bulk-keyword-panel summary:hover::after,
 .five-point-panel summary:hover::after {
   color: var(--accent);
 }
 
 .bulk-sku-panel summary:hover .summary-hint,
+.bulk-keyword-panel summary:hover .summary-hint,
 .five-point-panel summary:hover .summary-hint {
   color: var(--accent);
   opacity: 0.85;
@@ -458,16 +589,19 @@ button.text.danger:hover {
 }
 
 .bulk-sku-panel summary::-webkit-details-marker,
+.bulk-keyword-panel summary::-webkit-details-marker,
 .five-point-panel summary::-webkit-details-marker {
   display: none;
 }
 
 .bulk-sku-panel summary::marker,
+.bulk-keyword-panel summary::marker,
 .five-point-panel summary::marker {
   display: none;
 }
 
 .bulk-sku-panel summary::after,
+.bulk-keyword-panel summary::after,
 .five-point-panel summary::after {
   content: '\25BC';
   position: absolute;
@@ -478,17 +612,20 @@ button.text.danger:hover {
 }
 
 .bulk-sku-panel[open] summary,
+.bulk-keyword-panel[open] summary,
 .five-point-panel[open] summary {
   color: var(--accent);
 }
 
 .bulk-sku-panel[open] summary::after,
+.bulk-keyword-panel[open] summary::after,
 .five-point-panel[open] summary::after {
   transform: rotate(-180deg);
   color: var(--accent);
 }
 
 .bulk-sku-panel[open] .summary-hint,
+.bulk-keyword-panel[open] .summary-hint,
 .five-point-panel[open] .summary-hint {
   color: var(--accent);
   opacity: 0.85;
