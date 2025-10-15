@@ -144,6 +144,38 @@
       <p class="hint">所有生成的标题都会在此处纵向排列，便于在同一行查看完整标题。</p>
       <div id="spu-container" class="spu-container"></div>
     </section>
+
+    <section class="panel preview-panel" id="preview-panel">
+      <h2>标题预览区</h2>
+      <p class="hint">点击批量导出按钮后，可在此查看全部标题，统计词频或交给 AI 调整。</p>
+      <div class="preview-actions">
+        <button id="preview-copy" class="secondary" type="button">复制预览内容</button>
+        <button id="preview-frequency" class="secondary" type="button">词频统计</button>
+        <button id="preview-ai-adjust" class="secondary" type="button">AI 调整</button>
+      </div>
+      <p class="hint" id="preview-empty-hint">暂未生成标题，请先在上方批量导出。</p>
+      <div class="preview-block" id="preview-original-block" hidden>
+        <div class="preview-block-header">
+          <h3>当前标题</h3>
+          <span class="preview-count" id="preview-count"></span>
+        </div>
+        <pre class="preview-text" id="preview-original-text"></pre>
+      </div>
+      <div class="preview-block" id="preview-ai-block" hidden>
+        <div class="preview-block-header">
+          <h3>AI 调整结果</h3>
+          <button class="text" id="preview-ai-reset" type="button">清除 AI 结果</button>
+        </div>
+        <pre class="preview-text" id="preview-ai-text"></pre>
+      </div>
+      <div class="preview-block" id="preview-frequency-block" hidden>
+        <div class="preview-block-header">
+          <h3>词频统计</h3>
+          <button class="text" id="preview-frequency-close" type="button">隐藏</button>
+        </div>
+        <div class="frequency-list" id="preview-frequency-list"></div>
+      </div>
+    </section>
   </main>
 
   <template id="sku-template">

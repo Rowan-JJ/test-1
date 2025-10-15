@@ -42,6 +42,12 @@ const state = {
     skuTitleLimit: DEFAULT_SKU_TITLE_LIMIT,
     subtitleLimit: DEFAULT_SUBTITLE_LIMIT,
   },
+  preview: {
+    items: [],
+    aiItems: [],
+    aiRaw: '',
+    frequencies: null,
+  },
 };
 
 let keywordCounter = 0;
@@ -66,6 +72,21 @@ const bulkKeywordSubmit = document.getElementById('bulk-keyword-submit');
 const bulkKeywordClear = document.getElementById('bulk-keyword-clear');
 const pendingKeywordPanel = document.getElementById('pending-keyword-panel');
 const pendingKeywordList = document.getElementById('pending-keyword-list');
+
+const previewPanel = document.getElementById('preview-panel');
+const previewEmptyHint = document.getElementById('preview-empty-hint');
+const previewOriginalBlock = document.getElementById('preview-original-block');
+const previewOriginalText = document.getElementById('preview-original-text');
+const previewCountEl = document.getElementById('preview-count');
+const previewCopyBtn = document.getElementById('preview-copy');
+const previewFrequencyBtn = document.getElementById('preview-frequency');
+const previewFrequencyBlock = document.getElementById('preview-frequency-block');
+const previewFrequencyList = document.getElementById('preview-frequency-list');
+const previewFrequencyCloseBtn = document.getElementById('preview-frequency-close');
+const previewAiBtn = document.getElementById('preview-ai-adjust');
+const previewAiBlock = document.getElementById('preview-ai-block');
+const previewAiText = document.getElementById('preview-ai-text');
+const previewAiResetBtn = document.getElementById('preview-ai-reset');
 
 const keywordPillTemplate = document.getElementById('keyword-pill-template');
 const spuTemplate = document.getElementById('spu-template');
@@ -140,11 +161,19 @@ function createKeywordPill(keyword, { allowRemove, context } = {}) {
   pill.dataset.keywordType = keyword.type || 'core';
   pill.style.background = keyword.color || state.keywordTypeColors[keyword.type] || '#4c6ef5';
   pill.querySelector('.keyword-label').textContent = keyword.text;
-  const meta = [];
-  if (keyword.type) meta.push(`类型: ${getKeywordTypeLabel(keyword.type)}`);
-  if (keyword.heat) meta.push(`热度: ${keyword.heat}`);
-  if (keyword.rank) meta.push(`排名: ${keyword.rank}`);
-  pill.querySelector('.keyword-meta').textContent = meta.join(' | ') || '无额外信息';
+  const metaParts = [];
+  if (keyword.heat) metaParts.push(`热度: ${keyword.heat}`);
+  if (keyword.rank) metaParts.push(`排名: ${keyword.rank}`);
+  const metaEl = pill.querySelector('.keyword-meta');
+  if (metaEl) {
+    if (metaParts.length) {
+      metaEl.textContent = metaParts.join(' | ');
+      metaEl.hidden = false;
+    } else {
+      metaEl.textContent = '';
+      metaEl.hidden = true;
+    }
+  }
   if (!allowRemove) {
     pill.querySelector('.pill-remove').remove();
   } else {
@@ -683,6 +712,7 @@ function addSpu({ name, info }) {
     info,
     subtitleKeywords: [],
     fivePointPrompt: DEFAULT_FIVE_POINT_PROMPT,
+    fivePointPanelOpen: false,
     skus: [],
   };
   state.spus.set(id, spu);
@@ -775,6 +805,16 @@ function renderSpu(spuId, { append = false } = {}) {
     }
   }
 
+  const fivePointDetails = card.querySelector('.five-point-panel');
+  if (fivePointDetails) {
+    const explicit = typeof spu.fivePointPanelOpen === 'boolean';
+    if (explicit) {
+      fivePointDetails.open = spu.fivePointPanelOpen;
+    } else if (spu.fivePoints) {
+      fivePointDetails.open = true;
+    }
+  }
+
   const promptTextarea = card.querySelector('.five-point-prompt');
   if (promptTextarea) {
     promptTextarea.value = spu.fivePointPrompt || DEFAULT_FIVE_POINT_PROMPT;
@@ -849,6 +889,14 @@ function bindSpuEvents(card, spuId) {
   const bulkAddBtn = card.querySelector('.bulk-add-sku');
   const bulkClearBtn = card.querySelector('.bulk-clear');
   const fivePointDetails = card.querySelector('.five-point-panel');
+
+  if (fivePointDetails) {
+    fivePointDetails.addEventListener('toggle', () => {
+      const spu = state.spus.get(spuId);
+      if (!spu) return;
+      spu.fivePointPanelOpen = fivePointDetails.open;
+    });
+  }
 
   addSkuBtn.onclick = () => {
     const name = prompt('请输入 SKU 名称');
@@ -1076,7 +1124,12 @@ async function generateFivePoints(spuId) {
     alert('请先为该 SPU 输入产品信息。');
     return;
   }
+  spu.fivePointPanelOpen = true;
   const card = spuContainer.querySelector(`[data-spu-id="${spuId}"]`);
+  const details = card?.querySelector('.five-point-panel');
+  if (details && !details.open) {
+    details.open = true;
+  }
   const generateBtn = card?.querySelector('.generate-five');
   if (generateBtn) {
     generateBtn.disabled = true;
@@ -1121,6 +1174,254 @@ async function generateFivePoints(spuId) {
       generateBtn.disabled = false;
       generateBtn.textContent = '五点生成';
     }
+  }
+}
+
+function collectPreviewItemsForSpu(spu) {
+  if (!spu) return [];
+  const items = [];
+  const spuLabel = spu.name || '未命名 SPU';
+  const subtitle = buildTextFromKeywordIds(spu.subtitleKeywords);
+  if (subtitle) {
+    items.push({
+      id: `${spu.id}_subtitle`,
+      label: `${spuLabel}（副标题）`,
+      text: subtitle,
+      type: 'subtitle',
+      spuId: spu.id,
+    });
+  }
+  for (const sku of spu.skus) {
+    const title = buildTextFromKeywordIds(sku.titleKeywords);
+    if (!title) continue;
+    const skuLabel = sku.name || sku.id;
+    items.push({
+      id: `${spu.id}_${sku.id}`,
+      label: `${spuLabel} - ${skuLabel}`,
+      text: title,
+      type: 'sku',
+      spuId: spu.id,
+      skuId: sku.id,
+    });
+  }
+  return items;
+}
+
+function formatPreviewItems(items) {
+  return (items || [])
+    .map((item, index) => `${index + 1}. ${item.label}: ${item.text}`)
+    .join('\n\n');
+}
+
+function setPreviewItems(items) {
+  state.preview.items = Array.isArray(items) ? items : [];
+  state.preview.aiItems = [];
+  state.preview.aiRaw = '';
+  state.preview.frequencies = null;
+  renderPreview();
+}
+
+function getPreviewCopyPayload() {
+  if (state.preview.aiItems?.length) {
+    return formatPreviewItems(state.preview.aiItems);
+  }
+  if (state.preview.aiRaw) {
+    return state.preview.aiRaw;
+  }
+  if (state.preview.items?.length) {
+    return formatPreviewItems(state.preview.items);
+  }
+  return '';
+}
+
+function renderPreview() {
+  if (!previewPanel) return;
+  const hasItems = Boolean(state.preview.items?.length);
+  if (previewEmptyHint) {
+    previewEmptyHint.hidden = hasItems;
+  }
+  if (previewOriginalBlock) {
+    previewOriginalBlock.hidden = !hasItems;
+    if (hasItems) {
+      if (previewOriginalText) {
+        previewOriginalText.textContent = formatPreviewItems(state.preview.items);
+      }
+      if (previewCountEl) {
+        previewCountEl.textContent = `${state.preview.items.length} 条标题`;
+      }
+    } else {
+      if (previewOriginalText) {
+        previewOriginalText.textContent = '';
+      }
+      if (previewCountEl) {
+        previewCountEl.textContent = '';
+      }
+    }
+  }
+
+  const hasAiText = Boolean(state.preview.aiItems?.length || state.preview.aiRaw);
+  if (previewAiBlock) {
+    previewAiBlock.hidden = !hasAiText;
+    if (hasAiText && previewAiText) {
+      const text = state.preview.aiItems?.length
+        ? formatPreviewItems(state.preview.aiItems)
+        : state.preview.aiRaw;
+      previewAiText.textContent = text;
+    } else if (previewAiText) {
+      previewAiText.textContent = '';
+    }
+  }
+
+  const freqVisible = Array.isArray(state.preview.frequencies) && state.preview.frequencies.length > 0;
+  if (previewFrequencyBlock) {
+    previewFrequencyBlock.hidden = !freqVisible;
+    if (freqVisible && previewFrequencyList) {
+      previewFrequencyList.innerHTML = '';
+      const fragment = document.createDocumentFragment();
+      for (const entry of state.preview.frequencies) {
+        const row = document.createElement('div');
+        row.className = 'frequency-row';
+        const wordEl = document.createElement('span');
+        wordEl.className = 'frequency-word';
+        wordEl.textContent = entry.word;
+        const countEl = document.createElement('span');
+        countEl.className = 'frequency-count';
+        countEl.textContent = String(entry.count);
+        row.append(wordEl, countEl);
+        fragment.appendChild(row);
+      }
+      previewFrequencyList.appendChild(fragment);
+    } else if (previewFrequencyList) {
+      previewFrequencyList.innerHTML = '';
+    }
+  }
+}
+
+function computeWordFrequencies(items) {
+  if (!Array.isArray(items) || !items.length) return [];
+  const counts = new Map();
+  for (const item of items) {
+    const text = (item?.text || '').toString();
+    const matches = text.toLowerCase().match(/\p{L}[\p{L}\p{N}'-]*/gu);
+    if (!matches) continue;
+    for (const word of matches) {
+      counts.set(word, (counts.get(word) || 0) + 1);
+    }
+  }
+  return Array.from(counts.entries())
+    .map(([word, count]) => ({ word, count }))
+    .sort((a, b) => b.count - a.count || a.word.localeCompare(b.word));
+}
+
+function showPreviewFrequencies() {
+  const items = state.preview.aiItems?.length ? state.preview.aiItems : state.preview.items;
+  if (!items?.length) {
+    showToast('暂无可统计的标题内容', true);
+    return;
+  }
+  const frequencies = computeWordFrequencies(items);
+  if (!frequencies.length) {
+    showToast('未检测到可统计的单词', true);
+    state.preview.frequencies = [];
+    renderPreview();
+    return;
+  }
+  state.preview.frequencies = frequencies;
+  renderPreview();
+  showToast('词频统计已生成');
+}
+
+function clearPreviewFrequencies() {
+  state.preview.frequencies = null;
+  renderPreview();
+}
+
+function clearPreviewAi() {
+  state.preview.aiItems = [];
+  state.preview.aiRaw = '';
+  state.preview.frequencies = null;
+  renderPreview();
+}
+
+async function adjustTitlesWithAI() {
+  const items = state.preview.aiItems?.length ? state.preview.aiItems : state.preview.items;
+  if (!items?.length) {
+    showToast('请先在上方批量导出标题', true);
+    return;
+  }
+  const apiKey = apiKeyInput.value.trim();
+  if (!apiKey) {
+    showToast('请先输入有效的 DeepSeek API Key', true);
+    return;
+  }
+  if (!previewAiBtn) return;
+  previewAiBtn.disabled = true;
+  const originalText = previewAiBtn.textContent;
+  previewAiBtn.textContent = '调整中...';
+  try {
+    const listText = items
+      .map((item, index) => `${index + 1}. ${item.label}: ${item.text}`)
+      .join('\n');
+    const response = await fetch('https://api.deepseek.com/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: 'deepseek-chat',
+        messages: [
+          {
+            role: 'system',
+            content:
+              'You are an Amazon listing editor. Remove duplicate words created by concatenating keyword blocks while keeping each title natural and within Amazon style. Keep each title in its original language and order as much as possible. Return revised titles in the same order using the format "n. Label: Title".',
+          },
+          {
+            role: 'user',
+            content: `Here are the titles:\n${listText}\n\nEnsure no repeated single words appear in the same title (e.g., "black bodysuit bodysuit for women" should become "black bodysuit for women"). If a title is already fine, repeat it unchanged.`,
+          },
+        ],
+        temperature: 0.4,
+      }),
+    });
+    if (!response.ok) {
+      throw new Error((await response.text()) || '请求失败');
+    }
+    const result = await response.json();
+    const content = result.choices?.[0]?.message?.content?.trim();
+    if (!content) {
+      throw new Error('未获取到有效的返回内容');
+    }
+    const aiItems = items.map((item) => ({ ...item }));
+    let parsed = 0;
+    for (const line of content.split(/\n+/)) {
+      const match = line.match(/^(\d+)\.\s*(.+?):\s*(.+)$/);
+      if (!match) continue;
+      const index = Number(match[1]) - 1;
+      if (!Number.isInteger(index) || index < 0 || index >= aiItems.length) continue;
+      aiItems[index].label = match[2].trim() || aiItems[index].label;
+      aiItems[index].text = match[3].trim();
+      parsed += 1;
+    }
+    if (parsed > 0) {
+      state.preview.aiItems = aiItems;
+      state.preview.aiRaw = formatPreviewItems(aiItems);
+    } else {
+      state.preview.aiItems = [];
+      state.preview.aiRaw = content;
+      showToast('AI 返回内容格式异常，已显示原始文本', true);
+    }
+    state.preview.frequencies = null;
+    renderPreview();
+    if (parsed > 0) {
+      showToast('AI 已完成标题检查');
+    }
+  } catch (error) {
+    console.error(error);
+    showToast(`AI 调整失败：${error.message}`, true);
+  } finally {
+    previewAiBtn.disabled = false;
+    previewAiBtn.textContent = originalText;
   }
 }
 
@@ -1183,6 +1484,7 @@ function exportAllSkuTitles(spuId) {
     alert('所有 SKU 的标题均为空，请先拖入关键词。');
     return;
   }
+  setPreviewItems(collectPreviewItemsForSpu(spu));
   const payload = titles.join('\n\n');
   navigator.clipboard?.writeText(payload).then(() => {
     const message = emptySkus.length
@@ -1356,6 +1658,39 @@ if (typeColorGrid) {
   });
 }
 
+if (previewCopyBtn) {
+  previewCopyBtn.addEventListener('click', () => {
+    const payload = getPreviewCopyPayload();
+    if (!payload) {
+      showToast('暂无可复制的标题', true);
+      return;
+    }
+    navigator.clipboard?.writeText(payload).then(() => {
+      showToast('预览内容已复制');
+    }).catch(() => {
+      showToast('复制失败，请手动复制', true);
+      alert(payload);
+    });
+  });
+}
+
+if (previewFrequencyBtn) {
+  previewFrequencyBtn.addEventListener('click', showPreviewFrequencies);
+}
+
+if (previewFrequencyCloseBtn) {
+  previewFrequencyCloseBtn.addEventListener('click', clearPreviewFrequencies);
+}
+
+if (previewAiBtn) {
+  previewAiBtn.addEventListener('click', adjustTitlesWithAI);
+}
+
+if (previewAiResetBtn) {
+  previewAiResetBtn.addEventListener('click', clearPreviewAi);
+}
+
+renderPreview();
 updateKeywordColorInput();
 renderPendingKeywords();
 renderKeywordLibrary();
