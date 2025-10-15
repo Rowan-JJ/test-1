@@ -7,9 +7,20 @@
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
+  <div id="access-gate" class="access-gate" hidden>
+    <div class="access-modal">
+      <h2>访问验证</h2>
+      <p>请输入访问码以使用本工具。</p>
+      <form id="access-form">
+        <input id="access-code-input" type="password" placeholder="请输入访问码" autocomplete="off" />
+        <button type="submit" class="primary">确认</button>
+      </form>
+      <p id="access-error" class="access-error" role="alert" hidden>访问码错误，请重试。</p>
+    </div>
+  </div>
   <header class="app-header">
     <h1>亚马逊 Listing 标题与五点助手</h1>
-    <p>管理关键词、为不同 SKU 组合标题，并使用 DeepSeek 生成五点描述。</p>
+    <p>管理关键词、为不同 SKU 组合标题与搜索词，并使用 DeepSeek 生成五点描述。</p>
   </header>
 
   <main class="layout">
@@ -37,11 +48,15 @@
           <h3>标题长度设置</h3>
           <div class="field-group">
             <label for="sku-title-limit">SKU 标题字符上限</label>
-            <input id="sku-title-limit" type="number" min="20" max="250" value="150" />
+            <input id="sku-title-limit" type="number" min="20" max="400" value="200" />
           </div>
           <div class="field-group">
             <label for="subtitle-limit">副标题字符上限</label>
             <input id="subtitle-limit" type="number" min="20" max="250" value="125" />
+          </div>
+          <div class="field-group">
+            <label for="search-limit">搜索词字符上限</label>
+            <input id="search-limit" type="number" min="50" max="400" value="250" />
           </div>
         </div>
       </section>
@@ -141,22 +156,23 @@
 
     <section class="panel spu-board">
       <h2>SPU 与 SKU 标题区</h2>
-      <p class="hint">所有生成的标题都会在此处纵向排列，便于在同一行查看完整标题。</p>
+      <p class="hint">所有生成的标题与搜索词都会在此处纵向排列，便于在同一行查看完整内容。</p>
       <div id="spu-container" class="spu-container"></div>
     </section>
 
     <section class="panel preview-panel" id="preview-panel">
-      <h2>标题预览区</h2>
-      <p class="hint">点击批量导出按钮后，可在此查看全部标题，统计词频或交给 AI 调整。</p>
+      <h2>标题与搜索词预览区</h2>
+      <p class="hint">点击批量导出按钮后，可在此查看全部标题与搜索词，统计词频或交给 AI 调整。</p>
       <div class="preview-actions">
         <button id="preview-copy" class="secondary" type="button">复制预览内容</button>
+        <button id="preview-copy-all" class="secondary" type="button">导出所有标题与搜索词</button>
         <button id="preview-frequency" class="secondary" type="button">词频统计</button>
         <button id="preview-ai-adjust" class="secondary" type="button">AI 调整</button>
       </div>
-      <p class="hint" id="preview-empty-hint">暂未生成标题，请先在上方批量导出。</p>
+      <p class="hint" id="preview-empty-hint">暂未生成内容，请先在上方批量导出。</p>
       <div class="preview-block" id="preview-original-block" hidden>
         <div class="preview-block-header">
-          <h3>当前标题</h3>
+          <h3>当前内容</h3>
           <span class="preview-count" id="preview-count"></span>
         </div>
         <pre class="preview-text" id="preview-original-text"></pre>
@@ -191,8 +207,25 @@
       <div class="title-dropzone" data-sku-id="">
         <p class="placeholder">拖放关键词到此处构建标题</p>
         <div class="dropzone-footer">
-          <span class="char-counter" data-counter-type="sku">0 / 150</span>
+          <span class="char-counter" data-counter-type="sku">0 / 200</span>
         </div>
+      </div>
+      <div class="search-terms-block">
+        <div class="search-header">
+          <h5>搜索词</h5>
+          <div class="search-actions">
+            <button class="secondary search-generate" type="button">生成搜索词</button>
+            <button class="secondary search-export" type="button">导出搜索词</button>
+          </div>
+        </div>
+        <div class="search-controls">
+          <label>
+            字符上限
+            <input class="search-limit" type="number" min="50" max="400" value="250" />
+          </label>
+          <span class="char-counter" data-counter-type="search">0 / 250</span>
+        </div>
+        <textarea class="search-text" rows="2" placeholder="点击生成搜索词或手动输入"></textarea>
       </div>
     </div>
   </template>
@@ -208,11 +241,12 @@
           <button class="secondary add-sku" type="button">新增 SKU</button>
           <button class="secondary auto-generate" type="button">自动生成标题</button>
           <button class="secondary export-all" type="button">批量导出 SKU 标题</button>
+          <button class="secondary export-search" type="button">批量导出搜索词</button>
           <button class="secondary subtitle-export" type="button">导出副标题</button>
           <button class="text danger delete-spu" type="button">删除 SPU</button>
         </div>
       </div>
-      <p class="hint formula-hint">公式：核心词1 + 特征词 + 核心词2 + 特征词 + 场景词 + 小语种词</p>
+      <p class="hint formula-hint">公式：核心词1 + 特征词1 + 核心词2 + 特征词2 + 特征词3 + 场景词</p>
       <div class="subtitle-block">
         <div class="subtitle-header">
           <h4>副标题</h4>

@@ -1,3 +1,6 @@
+const ACCESS_CODE = 'zjj123456';
+const ACCESS_STORAGE_KEY = 'listing_access_granted';
+
 const KEYWORD_TYPES = [
   { value: 'core', label: '核心词' },
   { value: 'feature', label: '特征词' },
@@ -27,8 +30,18 @@ const DEFAULT_TYPE_COLORS = {
   minor: '#845EF7',
 };
 
-const DEFAULT_SKU_TITLE_LIMIT = 150;
+const DEFAULT_SKU_TITLE_LIMIT = 200;
 const DEFAULT_SUBTITLE_LIMIT = 125;
+const DEFAULT_SEARCH_TERM_LIMIT = 250;
+
+const SEARCH_TYPE_PERCENTAGES = {
+  core: 0.2,
+  feature: 0.2,
+  scene: 0.4,
+  minor: 0.2,
+};
+
+const SEARCH_TYPE_PATTERN = createSearchPattern();
 
 const DEFAULT_FIVE_POINT_PROMPT =
   'You are an Amazon listing expert. Analyze the product information and write five concise Amazon bullet points in English, following marketplace rules.';
@@ -41,6 +54,7 @@ const state = {
   settings: {
     skuTitleLimit: DEFAULT_SKU_TITLE_LIMIT,
     subtitleLimit: DEFAULT_SUBTITLE_LIMIT,
+    searchTermLimit: DEFAULT_SEARCH_TERM_LIMIT,
   },
   preview: {
     items: [],
@@ -66,6 +80,7 @@ const spuContainer = document.getElementById('spu-container');
 const apiKeyInput = document.getElementById('api-key');
 const skuTitleLimitInput = document.getElementById('sku-title-limit');
 const subtitleLimitInput = document.getElementById('subtitle-limit');
+const searchLimitInput = document.getElementById('search-limit');
 const bulkKeywordDetails = document.getElementById('bulk-keyword-details');
 const bulkKeywordTextarea = document.getElementById('bulk-keyword-text');
 const bulkKeywordSubmit = document.getElementById('bulk-keyword-submit');
@@ -79,6 +94,7 @@ const previewOriginalBlock = document.getElementById('preview-original-block');
 const previewOriginalText = document.getElementById('preview-original-text');
 const previewCountEl = document.getElementById('preview-count');
 const previewCopyBtn = document.getElementById('preview-copy');
+const previewCopyAllBtn = document.getElementById('preview-copy-all');
 const previewFrequencyBtn = document.getElementById('preview-frequency');
 const previewFrequencyBlock = document.getElementById('preview-frequency-block');
 const previewFrequencyList = document.getElementById('preview-frequency-list');
@@ -87,6 +103,11 @@ const previewAiBtn = document.getElementById('preview-ai-adjust');
 const previewAiBlock = document.getElementById('preview-ai-block');
 const previewAiText = document.getElementById('preview-ai-text');
 const previewAiResetBtn = document.getElementById('preview-ai-reset');
+
+const accessGate = document.getElementById('access-gate');
+const accessForm = document.getElementById('access-form');
+const accessCodeInput = document.getElementById('access-code-input');
+const accessErrorEl = document.getElementById('access-error');
 
 const keywordPillTemplate = document.getElementById('keyword-pill-template');
 const spuTemplate = document.getElementById('spu-template');
@@ -114,6 +135,34 @@ function shuffle(array) {
     [result[i], result[j]] = [result[j], result[i]];
   }
   return result;
+}
+
+function createSearchPattern() {
+  const buckets = Object.entries(SEARCH_TYPE_PERCENTAGES).map(([type, ratio]) => ({
+    type,
+    remaining: Math.max(1, Math.round(ratio * 10)),
+  }));
+  const pattern = [];
+  let added = true;
+  while (added) {
+    added = false;
+    for (const bucket of buckets) {
+      if (bucket.remaining > 0) {
+        pattern.push(bucket.type);
+        bucket.remaining -= 1;
+        added = true;
+      }
+    }
+  }
+  return pattern;
+}
+
+function getSearchLimit(sku) {
+  const limit = Number(sku?.searchLimit);
+  if (Number.isFinite(limit) && limit > 0) {
+    return limit;
+  }
+  return state.settings.searchTermLimit || DEFAULT_SEARCH_TERM_LIMIT;
 }
 
 function updateKeywordColorInput(selectedType = keywordTypeSelect.value) {
@@ -246,8 +295,28 @@ function updateDropzoneMeta(dropzone, keywordIds) {
   const counter = dropzone.querySelector('.char-counter');
   if (counter) {
     counter.textContent = `${length} / ${limit}`;
+    counter.classList.toggle('over', length > limit);
   }
   dropzone.classList.toggle('over-limit', length > limit);
+}
+
+function updateSearchMeta(skuElement, sku) {
+  if (!skuElement || !sku) return;
+  const textarea = skuElement.querySelector('.search-text');
+  const counter = skuElement.querySelector('.char-counter[data-counter-type="search"]');
+  const limit = getSearchLimit(sku);
+  if (textarea) {
+    const value = textarea.value ?? '';
+    const over = value.length > limit;
+    textarea.classList.toggle('over-limit', over);
+    if (counter) {
+      counter.textContent = `${value.length} / ${limit}`;
+      counter.classList.toggle('over', over);
+    }
+  } else if (counter) {
+    counter.textContent = `0 / ${limit}`;
+    counter.classList.remove('over');
+  }
 }
 
 function refreshAllDropzoneMetas() {
@@ -262,6 +331,7 @@ function refreshAllDropzoneMetas() {
     const sku = spu?.skus.find((item) => item.id === skuId);
     if (sku) {
       updateSkuMeta(card, sku);
+      updateSearchMeta(card, sku);
     }
   });
 }
@@ -284,11 +354,11 @@ function getInfoSummary(info) {
   return compact.length > 40 ? `${compact.slice(0, 40)}…` : compact;
 }
 
-function clampLimitValue(value, fallback) {
+function clampLimitValue(value, fallback, { min = 20, max = 400 } = {}) {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return fallback;
   const rounded = Math.round(parsed);
-  return Math.min(250, Math.max(20, rounded));
+  return Math.min(max, Math.max(min, rounded));
 }
 
 function normalizeTypeAlias(value) {
@@ -704,6 +774,59 @@ function showToast(message, isError = false) {
   setTimeout(() => toast.classList.remove('visible'), 2200);
 }
 
+function grantAccess() {
+  document.body.classList.remove('access-locked');
+  if (accessGate) {
+    accessGate.hidden = true;
+  }
+  if (accessErrorEl) {
+    accessErrorEl.hidden = true;
+  }
+  try {
+    sessionStorage.setItem(ACCESS_STORAGE_KEY, '1');
+  } catch (error) {
+    // Ignore storage errors in environments where sessionStorage is unavailable.
+  }
+}
+
+function initAccessGate() {
+  if (!accessGate || !accessForm) return;
+  let unlocked = false;
+  try {
+    unlocked = sessionStorage.getItem(ACCESS_STORAGE_KEY) === '1';
+  } catch (error) {
+    unlocked = false;
+  }
+  if (unlocked) {
+    grantAccess();
+    return;
+  }
+  document.body.classList.add('access-locked');
+  accessGate.hidden = false;
+  if (accessCodeInput) {
+    accessCodeInput.value = '';
+    setTimeout(() => accessCodeInput.focus(), 0);
+  }
+  if (accessErrorEl) {
+    accessErrorEl.hidden = true;
+  }
+  accessForm.addEventListener('submit', (event) => {
+    event.preventDefault();
+    const value = accessCodeInput?.value?.trim();
+    if (value === ACCESS_CODE) {
+      grantAccess();
+    } else {
+      if (accessErrorEl) {
+        accessErrorEl.hidden = false;
+      }
+      if (accessCodeInput) {
+        accessCodeInput.value = '';
+        accessCodeInput.focus();
+      }
+    }
+  });
+}
+
 function addSpu({ name, info }) {
   const id = `spu_${++spuCounter}`;
   const spu = {
@@ -726,6 +849,9 @@ function addSku(spuId, { name }) {
     id: `sku_${++skuCounter}`,
     name,
     titleKeywords: [],
+    searchTerms: '',
+    searchLimit: state.settings.searchTermLimit || DEFAULT_SEARCH_TERM_LIMIT,
+    customSearchLimit: false,
   };
   spu.skus.push(sku);
   renderSpu(spuId);
@@ -857,6 +983,50 @@ function renderSku(spuId, sku) {
   }));
   updateSkuMeta(skuElement, sku);
 
+  if (!Number.isFinite(Number(sku.searchLimit))) {
+    sku.searchLimit = state.settings.searchTermLimit || DEFAULT_SEARCH_TERM_LIMIT;
+    sku.customSearchLimit = false;
+  }
+  if (typeof sku.searchTerms !== 'string') {
+    sku.searchTerms = sku.searchTerms ? String(sku.searchTerms) : '';
+  }
+
+  const searchTextarea = skuElement.querySelector('.search-text');
+  const searchLimitField = skuElement.querySelector('.search-limit');
+  const searchGenerateBtn = skuElement.querySelector('.search-generate');
+  const searchExportBtn = skuElement.querySelector('.search-export');
+
+  if (searchTextarea) {
+    searchTextarea.value = sku.searchTerms || '';
+    searchTextarea.addEventListener('input', () => {
+      sku.searchTerms = searchTextarea.value;
+      updateSearchMeta(skuElement, sku);
+    });
+  }
+
+  if (searchLimitField) {
+    const limit = getSearchLimit(sku);
+    sku.searchLimit = limit;
+    searchLimitField.value = String(limit);
+    searchLimitField.addEventListener('input', () => {
+      const next = clampLimitValue(searchLimitField.value, sku.searchLimit, { min: 50, max: 400 });
+      sku.searchLimit = next;
+      sku.customSearchLimit = next !== (state.settings.searchTermLimit || DEFAULT_SEARCH_TERM_LIMIT);
+      searchLimitField.value = String(next);
+      updateSearchMeta(skuElement, sku);
+    });
+  }
+
+  if (searchGenerateBtn) {
+    searchGenerateBtn.addEventListener('click', () => generateSearchTerms(spuId, sku.id));
+  }
+
+  if (searchExportBtn) {
+    searchExportBtn.addEventListener('click', () => exportSearchTerms(spuId, sku.id));
+  }
+
+  updateSearchMeta(skuElement, sku);
+
   skuElement.querySelector('.sku-export').addEventListener('click', () => exportTitle(spuId, sku.id));
   skuElement.querySelector('.sku-delete').addEventListener('click', () => removeSku(spuId, sku.id));
   return skuElement;
@@ -882,6 +1052,7 @@ function bindSpuEvents(card, spuId) {
   const autoGenerateBtn = card.querySelector('.auto-generate');
   const subtitleExportBtn = card.querySelector('.subtitle-export');
   const exportAllBtn = card.querySelector('.export-all');
+  const exportSearchBtn = card.querySelector('.export-search');
   const deleteSpuBtn = card.querySelector('.delete-spu');
   const generateBtn = card.querySelector('.generate-five');
   const promptTextarea = card.querySelector('.five-point-prompt');
@@ -940,6 +1111,10 @@ function bindSpuEvents(card, spuId) {
     exportAllBtn.onclick = () => exportAllSkuTitles(spuId);
   }
 
+  if (exportSearchBtn) {
+    exportSearchBtn.onclick = () => exportAllSkuSearchTerms(spuId);
+  }
+
   if (promptTextarea) {
     promptTextarea.addEventListener('input', () => {
       const spu = state.spus.get(spuId);
@@ -991,16 +1166,12 @@ function autoGenerateTitles(spuId) {
     showToast('请至少添加 2 个核心词', true);
     return;
   }
-  if ((keywordsByType.feature || []).length < 2) {
-    showToast('请至少添加 2 个特征词', true);
+  if ((keywordsByType.feature || []).length < 3) {
+    showToast('请至少添加 3 个特征词', true);
     return;
   }
   if ((keywordsByType.scene || []).length < 1) {
     showToast('请至少添加 1 个场景词', true);
-    return;
-  }
-  if ((keywordsByType.minor || []).length < 1) {
-    showToast('请至少添加 1 个小语种词', true);
     return;
   }
 
@@ -1071,14 +1242,14 @@ function autoGenerateTitles(spuId) {
       const feature2 = pickWordWithShift('feature', used, attempt + 1);
       if (!feature2) continue;
       recordPick('feature', feature2);
+      const feature3 = pickWordWithShift('feature', used, attempt + 2);
+      if (!feature3) continue;
+      recordPick('feature', feature3);
       const scene = pickWordWithShift('scene', used, attempt);
       if (!scene) continue;
       recordPick('scene', scene);
-      const minor = pickWordWithShift('minor', used, attempt);
-      if (!minor) continue;
-      recordPick('minor', minor);
 
-      combination = [core1.id, feature1.id, core2.id, feature2.id, scene.id, minor.id];
+      combination = [core1.id, feature1.id, core2.id, feature2.id, feature3.id, scene.id];
       const titleText = buildTextFromKeywordIds(combination);
       if (titleText.length <= limit) {
         success = true;
@@ -1110,6 +1281,103 @@ function autoGenerateTitles(spuId) {
 
   renderSpu(spuId);
   showToast('已根据公式生成标题，可继续调整顺序');
+}
+
+function generateSearchTerms(spuId, skuId) {
+  const spu = state.spus.get(spuId);
+  if (!spu) return;
+  const sku = spu.skus.find((item) => item.id === skuId);
+  if (!sku) return;
+  if (!state.keywords.size) {
+    showToast('请先添加关键词', true);
+    return;
+  }
+  const usedKeywordIds = new Set(sku.titleKeywords || []);
+  const pools = {
+    core: [],
+    feature: [],
+    scene: [],
+    minor: [],
+  };
+  for (const keyword of state.keywords.values()) {
+    if (usedKeywordIds.has(keyword.id)) continue;
+    if (pools[keyword.type]) {
+      pools[keyword.type].push(keyword);
+    }
+  }
+  const availableCount = Object.values(pools).reduce((total, list) => total + list.length, 0);
+  if (!availableCount) {
+    showToast('暂无可用于该 SKU 的剩余关键词', true);
+    return;
+  }
+
+  const selectors = {};
+  for (const [type, list] of Object.entries(pools)) {
+    if (list.length) {
+      selectors[type] = shuffle(list);
+    }
+  }
+
+  const pattern = SEARCH_TYPE_PATTERN.length ? SEARCH_TYPE_PATTERN : Object.keys(selectors);
+  const words = [];
+  const limit = getSearchLimit(sku);
+  let patternIndex = 0;
+  let idleSteps = 0;
+  const maxIdle = Math.max(pattern.length * 3, 12);
+
+  const hasRemainingPool = () => Object.values(selectors).some((pool) => pool && pool.length);
+
+  while (hasRemainingPool() && idleSteps < maxIdle) {
+    if (!pattern.length) break;
+    const type = pattern[patternIndex % pattern.length];
+    patternIndex += 1;
+    const pool = selectors[type];
+    if (!pool || !pool.length) {
+      idleSteps += 1;
+      continue;
+    }
+    let added = false;
+    for (let i = 0; i < pool.length; i += 1) {
+      const keyword = pool[i];
+      const tentative = words.length ? `${words.join(' ')} ${keyword.text}` : keyword.text;
+      if (tentative.length <= limit) {
+        words.push(keyword.text);
+        pool.splice(i, 1);
+        added = true;
+        idleSteps = 0;
+        break;
+      }
+    }
+    if (!added) {
+      idleSteps += 1;
+    }
+  }
+
+  if (!words.length) {
+    showToast('未能在字符限制内生成搜索词，请调整限制或关键词', true);
+    return;
+  }
+
+  if (hasRemainingPool()) {
+    outer: for (const pool of Object.values(selectors)) {
+      if (!pool || !pool.length) continue;
+      for (let i = 0; i < pool.length; i += 1) {
+        const keyword = pool[i];
+        const tentative = words.length ? `${words.join(' ')} ${keyword.text}` : keyword.text;
+        if (tentative.length > limit) {
+          continue;
+        }
+        words.push(keyword.text);
+        if (tentative.length >= limit) {
+          break outer;
+        }
+      }
+    }
+  }
+
+  sku.searchTerms = words.join(' ');
+  renderSpu(spuId);
+  showToast('已生成搜索词，可继续调整或导出');
 }
 
 async function generateFivePoints(spuId) {
@@ -1193,16 +1461,36 @@ function collectPreviewItemsForSpu(spu) {
   }
   for (const sku of spu.skus) {
     const title = buildTextFromKeywordIds(sku.titleKeywords);
-    if (!title) continue;
     const skuLabel = sku.name || sku.id;
-    items.push({
-      id: `${spu.id}_${sku.id}`,
-      label: `${spuLabel} - ${skuLabel}`,
-      text: title,
-      type: 'sku',
-      spuId: spu.id,
-      skuId: sku.id,
-    });
+    if (title) {
+      items.push({
+        id: `${spu.id}_${sku.id}`,
+        label: `${spuLabel} - ${skuLabel}`,
+        text: title,
+        type: 'sku',
+        spuId: spu.id,
+        skuId: sku.id,
+      });
+    }
+    const searchText = (sku.searchTerms || '').trim();
+    if (searchText) {
+      items.push({
+        id: `${spu.id}_${sku.id}_search`,
+        label: `${spuLabel} - ${skuLabel}（搜索词）`,
+        text: searchText,
+        type: 'search',
+        spuId: spu.id,
+        skuId: sku.id,
+      });
+    }
+  }
+  return items;
+}
+
+function collectAllPreviewItems() {
+  const items = [];
+  for (const spu of state.spus.values()) {
+    items.push(...collectPreviewItemsForSpu(spu));
   }
   return items;
 }
@@ -1247,7 +1535,7 @@ function renderPreview() {
         previewOriginalText.textContent = formatPreviewItems(state.preview.items);
       }
       if (previewCountEl) {
-        previewCountEl.textContent = `${state.preview.items.length} 条标题`;
+        previewCountEl.textContent = `${state.preview.items.length} 条内容`;
       }
     } else {
       if (previewOriginalText) {
@@ -1316,7 +1604,7 @@ function computeWordFrequencies(items) {
 function showPreviewFrequencies() {
   const items = state.preview.aiItems?.length ? state.preview.aiItems : state.preview.items;
   if (!items?.length) {
-    showToast('暂无可统计的标题内容', true);
+    showToast('暂无可统计的内容', true);
     return;
   }
   const frequencies = computeWordFrequencies(items);
@@ -1343,10 +1631,10 @@ function clearPreviewAi() {
   renderPreview();
 }
 
-async function adjustTitlesWithAI() {
+async function adjustPreviewWithAI() {
   const items = state.preview.aiItems?.length ? state.preview.aiItems : state.preview.items;
   if (!items?.length) {
-    showToast('请先在上方批量导出标题', true);
+    showToast('请先在上方批量导出内容', true);
     return;
   }
   const apiKey = apiKeyInput.value.trim();
@@ -1374,11 +1662,11 @@ async function adjustTitlesWithAI() {
           {
             role: 'system',
             content:
-              'You are an Amazon listing editor. Remove duplicate words created by concatenating keyword blocks while keeping each title natural and within Amazon style. Keep each title in its original language and order as much as possible. Return revised titles in the same order using the format "n. Label: Title".',
+              'You are an Amazon listing editor. For each entry (title or search term list), remove duplicate words caused by concatenating keyword blocks while preserving meaning, language, and approximate length. Maintain the entry order and respond using the format "n. Label: Text".',
           },
           {
             role: 'user',
-            content: `Here are the titles:\n${listText}\n\nEnsure no repeated single words appear in the same title (e.g., "black bodysuit bodysuit for women" should become "black bodysuit for women"). If a title is already fine, repeat it unchanged.`,
+            content: `Here are the entries:\n${listText}\n\nEnsure a word does not repeat within the same entry (e.g., "black bodysuit bodysuit for women" should become "black bodysuit for women"). For search term lists, keep words unique while retaining important phrases. If an entry needs no change, repeat it exactly.`,
           },
         ],
         temperature: 0.4,
@@ -1414,7 +1702,7 @@ async function adjustTitlesWithAI() {
     state.preview.frequencies = null;
     renderPreview();
     if (parsed > 0) {
-      showToast('AI 已完成标题检查');
+      showToast('AI 已完成内容检查');
     }
   } catch (error) {
     console.error(error);
@@ -1442,6 +1730,23 @@ function exportTitle(spuId, skuId) {
     showToast('标题已复制到剪贴板');
   }).catch(() => {
     showToast(`标题：${title}`, true);
+  });
+}
+
+function exportSearchTerms(spuId, skuId) {
+  const spu = state.spus.get(spuId);
+  if (!spu) return;
+  const sku = spu.skus.find((item) => item.id === skuId);
+  if (!sku) return;
+  const text = (sku.searchTerms || '').trim();
+  if (!text) {
+    alert('该 SKU 的搜索词为空，请先生成或输入。');
+    return;
+  }
+  navigator.clipboard?.writeText(text).then(() => {
+    showToast('搜索词已复制到剪贴板');
+  }).catch(() => {
+    showToast(`搜索词：${text}`, true);
   });
 }
 
@@ -1497,6 +1802,40 @@ function exportAllSkuTitles(spuId) {
   });
 }
 
+function exportAllSkuSearchTerms(spuId) {
+  const spu = state.spus.get(spuId);
+  if (!spu) return;
+  if (!spu.skus.length) {
+    showToast('暂无 SKU 可导出', true);
+    return;
+  }
+  const terms = [];
+  const emptySkus = [];
+  for (const sku of spu.skus) {
+    const text = (sku.searchTerms || '').trim();
+    if (text) {
+      terms.push(text);
+    } else {
+      emptySkus.push(sku.name || sku.id);
+    }
+  }
+  if (!terms.length) {
+    alert('所有 SKU 的搜索词均为空，请先生成或输入。');
+    return;
+  }
+  setPreviewItems(collectPreviewItemsForSpu(spu));
+  const payload = terms.join('\n\n');
+  navigator.clipboard?.writeText(payload).then(() => {
+    const message = emptySkus.length
+      ? `已复制所有搜索词（跳过 ${emptySkus.length} 个空搜索词）`
+      : '已复制所有搜索词';
+    showToast(message, false);
+  }).catch(() => {
+    showToast('复制失败，请手动复制内容', true);
+    alert(payload);
+  });
+}
+
 keywordForm.addEventListener('submit', (event) => {
   event.preventDefault();
   const formData = new FormData(keywordForm);
@@ -1527,6 +1866,7 @@ clearLibraryBtn.addEventListener('click', () => {
       spu.subtitleKeywords = [];
       for (const sku of spu.skus) {
         sku.titleKeywords = [];
+        sku.searchTerms = '';
       }
     }
     renderPendingKeywords();
@@ -1548,11 +1888,12 @@ if (skuTitleLimitInput) {
   const initial = clampLimitValue(
     skuTitleLimitInput.value || state.settings.skuTitleLimit,
     state.settings.skuTitleLimit,
+    { min: 20, max: 400 },
   );
   state.settings.skuTitleLimit = initial;
   skuTitleLimitInput.value = String(initial);
   skuTitleLimitInput.addEventListener('input', () => {
-    const next = clampLimitValue(skuTitleLimitInput.value, state.settings.skuTitleLimit);
+    const next = clampLimitValue(skuTitleLimitInput.value, state.settings.skuTitleLimit, { min: 20, max: 400 });
     state.settings.skuTitleLimit = next;
     skuTitleLimitInput.value = String(next);
     refreshAllDropzoneMetas();
@@ -1563,14 +1904,56 @@ if (subtitleLimitInput) {
   const initial = clampLimitValue(
     subtitleLimitInput.value || state.settings.subtitleLimit,
     state.settings.subtitleLimit,
+    { min: 20, max: 250 },
   );
   state.settings.subtitleLimit = initial;
   subtitleLimitInput.value = String(initial);
   subtitleLimitInput.addEventListener('input', () => {
-    const next = clampLimitValue(subtitleLimitInput.value, state.settings.subtitleLimit);
+    const next = clampLimitValue(subtitleLimitInput.value, state.settings.subtitleLimit, { min: 20, max: 250 });
     state.settings.subtitleLimit = next;
     subtitleLimitInput.value = String(next);
     refreshAllDropzoneMetas();
+  });
+}
+
+if (searchLimitInput) {
+  const initial = clampLimitValue(
+    searchLimitInput.value || state.settings.searchTermLimit,
+    state.settings.searchTermLimit,
+    { min: 50, max: 400 },
+  );
+  state.settings.searchTermLimit = initial;
+  searchLimitInput.value = String(initial);
+  searchLimitInput.addEventListener('input', () => {
+    const previous = state.settings.searchTermLimit;
+    const next = clampLimitValue(searchLimitInput.value, previous, { min: 50, max: 400 });
+    state.settings.searchTermLimit = next;
+    searchLimitInput.value = String(next);
+    for (const spu of state.spus.values()) {
+      for (const sku of spu.skus) {
+        if (!sku.customSearchLimit || sku.searchLimit === previous) {
+          sku.searchLimit = next;
+          sku.customSearchLimit = false;
+        }
+      }
+    }
+    document.querySelectorAll('.sku-card').forEach((card) => {
+      const skuId = card.dataset.skuId;
+      const spuId = card.closest('[data-spu-id]')?.dataset.spuId;
+      if (!skuId || !spuId) return;
+      const spu = state.spus.get(spuId);
+      const sku = spu?.skus.find((item) => item.id === skuId);
+      if (!sku) return;
+      const limitField = card.querySelector('.search-limit');
+      if (limitField) {
+        limitField.value = String(getSearchLimit(sku));
+      }
+      const textarea = card.querySelector('.search-text');
+      if (textarea) {
+        textarea.value = sku.searchTerms || '';
+      }
+      updateSearchMeta(card, sku);
+    });
   });
 }
 
@@ -1662,11 +2045,29 @@ if (previewCopyBtn) {
   previewCopyBtn.addEventListener('click', () => {
     const payload = getPreviewCopyPayload();
     if (!payload) {
-      showToast('暂无可复制的标题', true);
+      showToast('暂无可复制的内容', true);
       return;
     }
     navigator.clipboard?.writeText(payload).then(() => {
       showToast('预览内容已复制');
+    }).catch(() => {
+      showToast('复制失败，请手动复制', true);
+      alert(payload);
+    });
+  });
+}
+
+if (previewCopyAllBtn) {
+  previewCopyAllBtn.addEventListener('click', () => {
+    const items = collectAllPreviewItems();
+    if (!items.length) {
+      showToast('暂无可导出的内容', true);
+      return;
+    }
+    setPreviewItems(items);
+    const payload = formatPreviewItems(items);
+    navigator.clipboard?.writeText(payload).then(() => {
+      showToast('已复制全部标题与搜索词');
     }).catch(() => {
       showToast('复制失败，请手动复制', true);
       alert(payload);
@@ -1683,13 +2084,14 @@ if (previewFrequencyCloseBtn) {
 }
 
 if (previewAiBtn) {
-  previewAiBtn.addEventListener('click', adjustTitlesWithAI);
+  previewAiBtn.addEventListener('click', adjustPreviewWithAI);
 }
 
 if (previewAiResetBtn) {
   previewAiResetBtn.addEventListener('click', clearPreviewAi);
 }
 
+initAccessGate();
 renderPreview();
 updateKeywordColorInput();
 renderPendingKeywords();
