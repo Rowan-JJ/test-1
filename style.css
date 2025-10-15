@@ -47,11 +47,17 @@ p {
 }
 
 .layout {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  display: flex;
+  flex-direction: column;
   gap: 24px;
   padding: clamp(16px, 3vw, 40px);
-  align-items: flex-start;
+}
+
+.top-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+  gap: 24px;
+  align-items: stretch;
 }
 
 .panel {
@@ -62,6 +68,12 @@ p {
   display: flex;
   flex-direction: column;
   gap: 24px;
+}
+
+.library-panel {
+  position: sticky;
+  top: 0;
+  z-index: 5;
 }
 
 .keyword-form,
@@ -192,22 +204,23 @@ button.text.danger:hover {
 
 .keyword-list {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 10px;
 }
 
 .keyword-pill {
   display: grid;
   grid-template-columns: 1fr auto;
-  gap: 4px;
+  gap: 2px;
   align-items: center;
-  padding: 10px 12px;
-  border-radius: 12px;
+  padding: 8px 10px;
+  border-radius: 10px;
   color: white;
+  font-size: 0.85rem;
   font-weight: 600;
   cursor: grab;
   position: relative;
-  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.15);
+  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.15);
   transition: transform 0.2s ease;
 }
 
@@ -217,7 +230,7 @@ button.text.danger:hover {
 
 .keyword-pill small {
   grid-column: 1 / -1;
-  font-size: 0.75rem;
+  font-size: 0.7rem;
   opacity: 0.85;
 }
 
@@ -226,8 +239,8 @@ button.text.danger:hover {
   color: inherit;
   background: rgba(0, 0, 0, 0.15);
   border-radius: 50%;
-  width: 22px;
-  height: 22px;
+  width: 20px;
+  height: 20px;
   padding: 0;
   line-height: 1;
   display: grid;
@@ -243,7 +256,7 @@ button.text.danger:hover {
 }
 
 .title-dropzone {
-  min-height: 80px;
+  min-height: 70px;
   border: 2px dashed rgba(76, 110, 245, 0.3);
   border-radius: 12px;
   padding: 12px;
@@ -263,7 +276,7 @@ button.text.danger:hover {
 .title-dropzone .keyword-pill {
   box-shadow: none;
   cursor: grab;
-  padding-right: 30px;
+  padding-right: 28px;
 }
 
 .title-dropzone .keyword-pill .pill-remove {
@@ -274,6 +287,29 @@ button.text.danger:hover {
   color: var(--text-secondary);
   opacity: 0.7;
   margin: 0;
+}
+
+.spu-board {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-height: 70vh;
+  overflow-y: auto;
+  padding-right: calc(clamp(20px, 3vw, 28px) + 8px);
+  scrollbar-color: rgba(76, 110, 245, 0.3) transparent;
+}
+
+.spu-board::-webkit-scrollbar {
+  width: 8px;
+}
+
+.spu-board::-webkit-scrollbar-thumb {
+  background: rgba(76, 110, 245, 0.3);
+  border-radius: 999px;
+}
+
+.spu-board::-webkit-scrollbar-track {
+  background: transparent;
 }
 
 .spu-container {
@@ -326,23 +362,20 @@ button.text.danger:hover {
 }
 
 .sku-list {
-  display: flex;
+  display: grid;
+  grid-template-columns: 1fr;
   gap: 16px;
-  overflow-x: auto;
-  padding-bottom: 8px;
-  scroll-snap-type: x proximity;
 }
 
 .sku-card {
   border: 1px solid var(--border);
   border-radius: 14px;
-  padding: 16px;
+  padding: 18px;
   display: flex;
   flex-direction: column;
   gap: 12px;
   background: rgba(245, 246, 250, 0.6);
-  min-width: clamp(260px, 32vw, 320px);
-  scroll-snap-align: start;
+  width: 100%;
 }
 
 .sku-header {
@@ -398,6 +431,30 @@ button.text.danger:hover {
   font-weight: 600;
   color: var(--text-secondary);
   list-style: none;
+  position: relative;
+  padding-right: 28px;
+}
+
+.bulk-sku-panel summary:hover,
+.five-point-panel summary:hover {
+  color: var(--accent);
+}
+
+.bulk-sku-panel summary:hover::after,
+.five-point-panel summary:hover::after {
+  color: var(--accent);
+}
+
+.bulk-sku-panel summary:hover .summary-hint,
+.five-point-panel summary:hover .summary-hint {
+  color: var(--accent);
+  opacity: 0.85;
+}
+
+.summary-hint {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  opacity: 0.75;
 }
 
 .bulk-sku-panel summary::-webkit-details-marker,
@@ -410,9 +467,31 @@ button.text.danger:hover {
   display: none;
 }
 
+.bulk-sku-panel summary::after,
+.five-point-panel summary::after {
+  content: '\25BC';
+  position: absolute;
+  right: 0;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  transition: transform 0.2s ease, color 0.2s ease;
+}
+
 .bulk-sku-panel[open] summary,
 .five-point-panel[open] summary {
   color: var(--accent);
+}
+
+.bulk-sku-panel[open] summary::after,
+.five-point-panel[open] summary::after {
+  transform: rotate(-180deg);
+  color: var(--accent);
+}
+
+.bulk-sku-panel[open] .summary-hint,
+.five-point-panel[open] .summary-hint {
+  color: var(--accent);
+  opacity: 0.85;
 }
 
 .bulk-body,
@@ -444,8 +523,18 @@ button.text.danger:hover {
 }
 
 @media (max-width: 680px) {
-  .layout {
+  .top-grid {
     grid-template-columns: 1fr;
+  }
+
+  .library-panel {
+    position: static;
+  }
+
+  .spu-board {
+    max-height: none;
+    overflow: visible;
+    padding-right: clamp(20px, 3vw, 28px);
   }
 
   .spu-actions {
