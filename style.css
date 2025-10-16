@@ -139,6 +139,10 @@ p {
   align-self: stretch;
 }
 
+.library-panel.collapsed {
+  position: static;
+}
+
 .pending-keyword-panel {
   display: flex;
   flex-direction: column;
@@ -388,12 +392,29 @@ button.text.danger:hover {
   flex-wrap: wrap;
 }
 
+.library-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
 .library-title-group {
   display: flex;
   align-items: center;
   gap: 12px;
   flex-wrap: wrap;
   flex: 1 1 auto;
+}
+
+.library-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.library-panel.collapsed .library-body {
+  display: none;
 }
 
 .library-legend {
@@ -422,7 +443,7 @@ button.text.danger:hover {
 
 .keyword-categories {
   display: grid;
-  grid-template-columns: repeat(4, minmax(220px, 1fr));
+  grid-template-columns: 1fr;
   gap: 16px;
   padding-bottom: 6px;
 }
@@ -437,18 +458,6 @@ button.text.danger:hover {
   display: flex;
   flex-direction: column;
   gap: 6px;
-}
-
-@media (max-width: 1200px) {
-  .keyword-categories {
-    grid-template-columns: repeat(2, minmax(220px, 1fr));
-  }
-}
-
-@media (max-width: 720px) {
-  .keyword-categories {
-    grid-template-columns: 1fr;
-  }
 }
 
 .category-header {
@@ -990,6 +999,7 @@ button.text.danger:hover {
   display: grid;
   gap: 20px;
   grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  align-items: stretch;
 }
 
 .preview-column {
@@ -1146,6 +1156,9 @@ button.text.danger:hover {
 .frequency-list {
   display: grid;
   gap: 8px;
+  max-height: 220px;
+  overflow-y: auto;
+  padding-right: 4px;
 }
 
 .frequency-row {
@@ -1186,6 +1199,11 @@ button.text.danger:hover {
 
 .frequency-count {
   color: var(--text-secondary);
+}
+
+.frequency-ratio {
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
 }
 
 #preview-ai-empty {

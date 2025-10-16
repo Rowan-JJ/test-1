@@ -187,38 +187,43 @@
               <span data-type="minor"><i></i>小语种词</span>
             </div>
           </div>
-          <button id="clear-library" class="secondary" type="button">清空所有关键词</button>
+          <div class="library-actions">
+            <button id="toggle-library" class="secondary" type="button">收起面板</button>
+            <button id="clear-library" class="secondary" type="button">清空所有关键词</button>
+          </div>
         </div>
-        <p class="hint">拖动关键词滑块到任意 SKU 的标题或搜索词框中，或单击复制信息。</p>
-        <div class="keyword-scroll">
-          <div class="keyword-categories" id="keyword-categories">
-            <div class="keyword-category" data-type="core">
-              <div class="category-header">
-                <h4>核心词</h4>
-                <span class="category-count" data-count-type="core"></span>
+        <div class="library-body" id="library-body">
+          <p class="hint">拖动关键词滑块到任意 SKU 的标题或搜索词框中，或单击复制信息。</p>
+          <div class="keyword-scroll">
+            <div class="keyword-categories" id="keyword-categories">
+              <div class="keyword-category" data-type="core">
+                <div class="category-header">
+                  <h4>核心词</h4>
+                  <span class="category-count" data-count-type="core"></span>
+                </div>
+                <div class="keyword-list" id="keyword-list-core"></div>
               </div>
-              <div class="keyword-list" id="keyword-list-core"></div>
-            </div>
-            <div class="keyword-category" data-type="feature">
-              <div class="category-header">
-                <h4>特征词</h4>
-                <span class="category-count" data-count-type="feature"></span>
+              <div class="keyword-category" data-type="feature">
+                <div class="category-header">
+                  <h4>特征词</h4>
+                  <span class="category-count" data-count-type="feature"></span>
+                </div>
+                <div class="keyword-list" id="keyword-list-feature"></div>
               </div>
-              <div class="keyword-list" id="keyword-list-feature"></div>
-            </div>
-            <div class="keyword-category" data-type="scene">
-              <div class="category-header">
-                <h4>场景词</h4>
-                <span class="category-count" data-count-type="scene"></span>
+              <div class="keyword-category" data-type="scene">
+                <div class="category-header">
+                  <h4>场景词</h4>
+                  <span class="category-count" data-count-type="scene"></span>
+                </div>
+                <div class="keyword-list" id="keyword-list-scene"></div>
               </div>
-              <div class="keyword-list" id="keyword-list-scene"></div>
-            </div>
-            <div class="keyword-category" data-type="minor">
-              <div class="category-header">
-                <h4>小语种词</h4>
-                <span class="category-count" data-count-type="minor"></span>
+              <div class="keyword-category" data-type="minor">
+                <div class="category-header">
+                  <h4>小语种词</h4>
+                  <span class="category-count" data-count-type="minor"></span>
+                </div>
+                <div class="keyword-list" id="keyword-list-minor"></div>
               </div>
-              <div class="keyword-list" id="keyword-list-minor"></div>
             </div>
           </div>
         </div>
@@ -321,6 +326,16 @@
             </div>
             <p class="hint" id="search-preview-ai-empty">暂无 AI 调整结果，将使用当前内容导出。</p>
             <pre class="preview-text" id="search-preview-ai-text"></pre>
+          </div>
+          <div class="preview-block" id="search-frequency-block" hidden>
+            <div class="preview-block-header">
+              <h4>词频统计</h4>
+              <div class="preview-frequency-actions">
+                <button class="secondary" id="search-preview-frequency" type="button">生成词频统计</button>
+                <button class="text" id="search-preview-frequency-clear" type="button">清空结果</button>
+              </div>
+            </div>
+            <div class="frequency-list" id="search-preview-frequency-list"></div>
           </div>
         </div>
       </div>

@@ -85,30 +85,48 @@ function sanitizeKeywordIdSegment(text) {
 function parseSkuComponents(raw) {
   const value = (raw || '').toString().trim();
   if (!value) {
-    return { colorCode: null, featureCode: null, sizeCode: null };
+    return { colorCode: null, featureCode: null, sizeCode: null, segments: [] };
   }
-  const upper = value.toUpperCase();
-  const parts = upper.split(/[-_]/).filter(Boolean);
+  const cleaned = value.replace(/\s+/g, '');
+  const segments = cleaned
+    .split(/[-_]+/)
+    .filter(Boolean)
+    .map((segment) => segment.toUpperCase());
+
   let colorCode = null;
   let featureCode = null;
   let sizeCode = null;
 
-  if (parts.length >= 3) {
-    sizeCode = parts[parts.length - 1];
-    featureCode = parts[parts.length - 2];
-    colorCode = parts[parts.length - 3];
-  }
-
-  if (!colorCode || !featureCode || !sizeCode) {
-    const match = upper.match(/([A-Z]{2})[-_]?(\d{2})[-_]?([A-Z0-9]{1,3})$/);
+  if (segments.length >= 2) {
+    const colorSegment = segments[1];
+    const match = colorSegment.match(/^([A-Z]{2,3})([A-Z0-9]*)$/);
     if (match) {
-      colorCode = colorCode || match[1];
-      featureCode = featureCode || match[2];
-      sizeCode = sizeCode || match[3];
+      colorCode = match[1];
+      featureCode = match[2] ? match[2].replace(/[^A-Z0-9]/g, '') || null : null;
+    } else {
+      const letters = colorSegment.replace(/[^A-Z]/g, '');
+      if (letters.length >= 2) {
+        colorCode = letters.slice(0, Math.min(3, letters.length));
+      }
     }
   }
 
-  return { colorCode, featureCode, sizeCode };
+  for (let i = 2; i < segments.length; i += 1) {
+    const normalized = segments[i].replace(/[^A-Z0-9]/g, '');
+    if (SIZE_CODE_SET.has(normalized)) {
+      sizeCode = normalized;
+      break;
+    }
+  }
+
+  if (!sizeCode) {
+    const fallbackSize = cleaned.toUpperCase().match(/(?:-|_)(XS|S|M|L|XL|XXL|3XL)(?:-|_|$)/);
+    if (fallbackSize) {
+      sizeCode = fallbackSize[1];
+    }
+  }
+
+  return { colorCode, featureCode, sizeCode, segments };
 }
 
 function extractKeywordTokens(text) {
@@ -145,6 +163,136 @@ function keywordsShareCoreRoot(keywordA, keywordB) {
   return false;
 }
 
+const TITLE_LOWER_WORDS = new Set([
+  'a',
+  'an',
+  'the',
+  'and',
+  'but',
+  'or',
+  'nor',
+  'for',
+  'on',
+  'at',
+  'to',
+  'from',
+  'by',
+  'of',
+  'in',
+  'with',
+  'over',
+  'into',
+  'onto',
+  'per',
+  'via',
+  'vs',
+  'as',
+  'up',
+  'off',
+]);
+
+function extractEdgeToken(keyword, position) {
+  if (!keyword?.text) return '';
+  const tokens = keyword.text
+    .toLowerCase()
+    .match(/\p{L}[\p{L}\p{N}'-]*/gu);
+  if (!tokens || !tokens.length) return '';
+  return position === 'first' ? tokens[0] : tokens[tokens.length - 1];
+}
+
+function keywordsCauseBoundaryDuplicate(prevKeyword, nextKeyword) {
+  if (!prevKeyword || !nextKeyword) return false;
+  const tail = extractEdgeToken(prevKeyword, 'last');
+  const head = extractEdgeToken(nextKeyword, 'first');
+  if (!tail || !head) return false;
+  return tail === head;
+}
+
+function hasEdgeDuplicates(keywords) {
+  if (!Array.isArray(keywords)) return false;
+  for (let i = 0; i < keywords.length - 1; i += 1) {
+    if (keywordsCauseBoundaryDuplicate(keywords[i], keywords[i + 1])) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function keywordSharesRootWithList(keyword, list) {
+  if (!keyword || !Array.isArray(list)) return false;
+  return list.some((item) => keywordsShareCoreRoot(keyword, item));
+}
+
+function hasRootOverlap(list) {
+  if (!Array.isArray(list)) return false;
+  for (let i = 0; i < list.length; i += 1) {
+    for (let j = i + 1; j < list.length; j += 1) {
+      if (keywordsShareCoreRoot(list[i], list[j])) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+function canAppendKeyword(currentWords, keyword, { enforceEdges = false, enforceRoots = false } = {}) {
+  if (!keyword) return false;
+  if (!Array.isArray(currentWords) || !currentWords.length) {
+    return true;
+  }
+  const options = { enforceEdges, enforceRoots };
+  if (options.enforceEdges && keywordsCauseBoundaryDuplicate(currentWords[currentWords.length - 1], keyword)) {
+    return false;
+  }
+  if (options.enforceRoots && keywordSharesRootWithList(keyword, currentWords)) {
+    return false;
+  }
+  return true;
+}
+
+function transformTitleText(text) {
+  if (!text) return '';
+  const words = text.split(/\s+/).filter(Boolean);
+  if (!words.length) return '';
+  const transformed = words.map((word, index) => {
+    const hasDigit = /\d/.test(word);
+    const isUpper = !hasDigit && /[A-Z]/.test(word) && word === word.toUpperCase();
+    if (hasDigit || isUpper) {
+      return word;
+    }
+    const lower = word.toLowerCase();
+    if (index > 0 && TITLE_LOWER_WORDS.has(lower)) {
+      return lower;
+    }
+    return lower.charAt(0).toUpperCase() + lower.slice(1);
+  });
+  return transformed.join(' ');
+}
+
+function transformSearchText(text) {
+  return (text || '').toLowerCase();
+}
+
+function getTotalSkuCount() {
+  let count = 0;
+  for (const spu of state.spus.values()) {
+    count += Array.isArray(spu.skus) ? spu.skus.length : 0;
+  }
+  return count;
+}
+
+function computeFrequencyDenominator() {
+  return Math.max(1, getTotalSkuCount() + 1);
+}
+
+function formatFrequencyRatio(ratio) {
+  if (!Number.isFinite(ratio)) {
+    return '0%';
+  }
+  const value = Math.max(0, ratio);
+  return `${Math.round(value * 1000) / 10}%`;
+}
+
 function createPreviewBucket({ enableFrequency = false } = {}) {
   return {
     items: [],
@@ -172,12 +320,13 @@ const state = {
   },
   preview: {
     titles: createPreviewBucket({ enableFrequency: true }),
-    search: createPreviewBucket({ enableFrequency: false }),
+    search: createPreviewBucket({ enableFrequency: true }),
   },
   previewFormats: {
     titles: 'simple',
     search: 'simple',
   },
+  libraryCollapsed: false,
 };
 
 function normalizeRank(value) {
@@ -199,44 +348,191 @@ function enforceCoreRankRequirement(keyword) {
   return { changed: false, rank: normalizedRank };
 }
 
-function ensureSkuColorSize(sku) {
+async function ensureSkuColorSize(sku) {
   if (!sku) return null;
   const parsed = parseSkuComponents(sku.name);
-  const mappedColor = parsed.colorCode ? COLOR_CODE_MAP[parsed.colorCode] : null;
-  if (mappedColor) {
-    sku.colorText = mappedColor;
-  }
-  if (!sku.colorText) {
-    const input = prompt(`请输入 SKU ${sku.name || ''} 的颜色（英文）`);
-    if (!input) {
-      return null;
-    }
-    sku.colorText = input.trim();
+  let colorText = parsed.colorCode ? COLOR_CODE_MAP[parsed.colorCode] : null;
+  if (!colorText && parsed.colorCode && parsed.colorCode.length > 2) {
+    colorText = transformTitleText(parsed.colorCode.toLowerCase());
   }
 
-  const normalizedSize = parsed.sizeCode ? parsed.sizeCode.toUpperCase() : '';
-  if (normalizedSize && SIZE_CODE_SET.has(normalizedSize)) {
-    sku.sizeText = normalizedSize;
+  let sizeText = parsed.sizeCode && SIZE_CODE_SET.has(parsed.sizeCode) ? parsed.sizeCode : null;
+  if (!sizeText) {
+    const fallback = (sku.name || '').toUpperCase().match(/(?:-|_)(XS|S|M|L|XL|XXL|3XL)(?:-|_|$)/);
+    if (fallback) {
+      sizeText = fallback[1];
+    }
   }
-  if (!sku.sizeText) {
-    const input = prompt(
-      `请输入 SKU ${sku.name || ''} 的尺码（可选：${KNOWN_SIZE_CODES.join('/')})`,
+
+  let aiAttempted = false;
+  let aiDeclined = false;
+  let colorResolved = Boolean(colorText);
+  let sizeResolved = Boolean(sizeText);
+
+  if (!colorResolved || !sizeResolved) {
+    const missingDesc = !colorResolved && !sizeResolved ? '颜色和尺码' : !colorResolved ? '颜色' : '尺码';
+    const useAi = confirm(
+      `未能识别 SKU ${sku.name || ''} 的${missingDesc}，是否调用 AI 协助识别？`,
     );
-    if (!input) {
-      return null;
+    if (useAi) {
+      aiAttempted = true;
+      const aiResult = await requestSkuColorSizeViaAI(sku.name, {
+        size: sizeText || parsed.sizeCode || '',
+        colorCode: parsed.colorCode || '',
+      });
+      if (aiResult) {
+        if (!colorResolved && aiResult.color) {
+          colorText = transformTitleText(aiResult.color.trim());
+          colorResolved = Boolean(colorText);
+        }
+        if (!sizeResolved && aiResult.size) {
+          const normalized = aiResult.size.trim().toUpperCase();
+          if (SIZE_CODE_SET.has(normalized)) {
+            sizeText = normalized;
+            sizeResolved = true;
+          }
+        }
+      }
+    } else {
+      aiDeclined = true;
     }
-    sku.sizeText = input.trim().toUpperCase();
   }
 
-  if (!sku.colorText || !sku.sizeText) {
+  if ((!colorResolved || !sizeResolved) && (aiDeclined || !aiAttempted)) {
+    if (!colorResolved) {
+      const manualColor = prompt(`请输入 SKU ${sku.name || ''} 的颜色（英文）`);
+      if (!manualColor) {
+        return null;
+      }
+      colorText = transformTitleText(manualColor.trim());
+      colorResolved = Boolean(colorText);
+    }
+    if (!sizeResolved) {
+      const manualSize = prompt(
+        `请输入 SKU ${sku.name || ''} 的尺码（可选：${KNOWN_SIZE_CODES.join('/')})`,
+      );
+      if (!manualSize) {
+        return null;
+      }
+      const normalized = manualSize.trim().toUpperCase();
+      if (!SIZE_CODE_SET.has(normalized)) {
+        showToast('输入的尺码不在允许范围内', true);
+        return null;
+      }
+      sizeText = normalized;
+      sizeResolved = true;
+    }
+  }
+
+  if ((!colorResolved || !sizeResolved) && aiAttempted) {
+    if (!colorResolved) {
+      const manualColor = prompt(`AI 未能识别 SKU ${sku.name || ''} 的颜色，请手动输入（英文）`);
+      if (!manualColor) {
+        return null;
+      }
+      colorText = transformTitleText(manualColor.trim());
+      colorResolved = Boolean(colorText);
+    }
+    if (!sizeResolved) {
+      const manualSize = prompt(
+        `AI 未能识别 SKU ${sku.name || ''} 的尺码，请手动输入（可选：${KNOWN_SIZE_CODES.join('/')})`,
+      );
+      if (!manualSize) {
+        return null;
+      }
+      const normalized = manualSize.trim().toUpperCase();
+      if (!SIZE_CODE_SET.has(normalized)) {
+        showToast('输入的尺码不在允许范围内', true);
+        return null;
+      }
+      sizeText = normalized;
+      sizeResolved = true;
+    }
+  }
+
+  if (!colorResolved || !sizeResolved) {
     return null;
   }
 
-  return { color: sku.colorText, size: sku.sizeText };
+  sku.colorText = colorText;
+  sku.sizeText = sizeText;
+
+  return { color: colorText, size: sizeText };
 }
 
-function ensureColorSizeKeywordForSku(sku) {
-  const resolved = ensureSkuColorSize(sku);
+async function requestSkuColorSizeViaAI(rawSku, context = {}) {
+  const apiKey = apiKeyInput.value.trim();
+  if (!apiKey) {
+    showToast('请先输入有效的 DeepSeek API Key', true);
+    return null;
+  }
+  try {
+    const detailParts = [];
+    if (context.colorCode) {
+      detailParts.push(`颜色代号：${context.colorCode}`);
+    }
+    if (context.size) {
+      detailParts.push(`已识别尺码：${context.size}`);
+    }
+    const detail = detailParts.length ? `（${detailParts.join('，')}）` : '';
+    const prompt =
+      'SKU 编码结构：以 PL 开头，随后是 SPU，再依次包含颜色代号+特征代码、尺码代码（XS/S/M/L/XL/XXL/3XL），末尾可能附加批次号。' +
+      '请判断颜色并输出英文单词（如 Red、Black、Leopard Print），尺码请返回上述集合中的值。' +
+      `请仅返回 JSON，例如 {"color":"Red","size":"M"}，无法判断时使用空字符串。` +
+      `\nSKU：${rawSku}${detail}`;
+    const response = await fetch('https://api.deepseek.com/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: 'deepseek-chat',
+        messages: [
+          {
+            role: 'system',
+            content:
+              'You analyze SKU codes for apparel products. Respond with JSON like {"color":"Red","size":"M"}. Size must be one of XS,S,M,L,XL,XXL,3XL or empty.',
+          },
+          { role: 'user', content: prompt },
+        ],
+        temperature: 0,
+      }),
+    });
+    if (!response.ok) {
+      throw new Error((await response.text()) || '请求失败');
+    }
+    const result = await response.json();
+    const content = result.choices?.[0]?.message?.content?.trim();
+    if (!content) {
+      throw new Error('未获取到有效的返回内容');
+    }
+    let parsed;
+    try {
+      parsed = JSON.parse(content);
+    } catch (error) {
+      const match = content.match(/```json([\s\S]*?)```/i);
+      if (match) {
+        parsed = JSON.parse(match[1]);
+      } else {
+        throw error;
+      }
+    }
+    if (!parsed || typeof parsed !== 'object') {
+      throw new Error('返回格式无法解析');
+    }
+    const color = typeof parsed.color === 'string' ? parsed.color.trim() : '';
+    const size = typeof parsed.size === 'string' ? parsed.size.trim().toUpperCase() : '';
+    return { color, size };
+  } catch (error) {
+    console.error(error);
+    showToast(`AI 识别失败：${error.message}`, true);
+    return null;
+  }
+}
+
+async function ensureColorSizeKeywordForSku(sku) {
+  const resolved = await ensureSkuColorSize(sku);
   if (!resolved) return null;
   const { color, size } = resolved;
   if (!color || !size) return null;
@@ -265,6 +561,9 @@ let skuCounter = 0;
 let pendingKeywordCounter = 0;
 
 const topNav = document.querySelector('.top-nav');
+const libraryPanel = document.getElementById('library-section');
+const libraryBody = document.getElementById('library-body');
+const toggleLibraryBtn = document.getElementById('toggle-library');
 
 const keywordCategoryEls = {
   core: document.getElementById('keyword-list-core'),
@@ -337,6 +636,10 @@ const searchPreviewElements = {
   aiBtn: document.getElementById('search-preview-ai'),
   formatSelect: document.getElementById('search-preview-format'),
   aiChars: document.getElementById('search-preview-ai-chars'),
+  frequencyBlock: document.getElementById('search-frequency-block'),
+  frequencyList: document.getElementById('search-preview-frequency-list'),
+  frequencyBtn: document.getElementById('search-preview-frequency'),
+  frequencyClear: document.getElementById('search-preview-frequency-clear'),
 };
 
 const fivePointContainer = document.getElementById('five-point-container');
@@ -354,6 +657,28 @@ const skuTemplate = document.getElementById('sku-template');
 
 ensureFixedKeywords();
 initializeApiKeyField();
+
+function setLibraryCollapsed(collapsed) {
+  state.libraryCollapsed = Boolean(collapsed);
+  if (libraryPanel) {
+    libraryPanel.classList.toggle('collapsed', state.libraryCollapsed);
+  }
+  if (libraryBody) {
+    libraryBody.hidden = state.libraryCollapsed;
+  }
+  if (toggleLibraryBtn) {
+    toggleLibraryBtn.textContent = state.libraryCollapsed ? '打开面板' : '收起面板';
+    toggleLibraryBtn.setAttribute('aria-expanded', (!state.libraryCollapsed).toString());
+  }
+}
+
+setLibraryCollapsed(state.libraryCollapsed);
+
+if (toggleLibraryBtn) {
+  toggleLibraryBtn.addEventListener('click', () => {
+    setLibraryCollapsed(!state.libraryCollapsed);
+  });
+}
 
 function updateNavMetrics() {
   if (!topNav) return;
@@ -1718,15 +2043,11 @@ function bindSpuEvents(card, spuId) {
   };
 }
 
-function expandTitleCombination({
-  ids,
-  words,
-  remainingFeatures,
-  remainingScenes,
-  limit,
-  isSubtitle,
-  colorKeywordId,
-}) {
+function expandTitleCombination(
+  { ids, words, remainingFeatures, remainingScenes, limit, isSubtitle, colorKeywordId },
+  enforcement = {},
+) {
+  const { enforceEdges = false, enforceRoots = false } = enforcement || {};
   const featurePool = (remainingFeatures || []).slice();
   const scenePool = (remainingScenes || []).slice();
   const usedIds = new Set(ids);
@@ -1744,6 +2065,12 @@ function expandTitleCombination({
     for (let index = 0; index < list.length; index += 1) {
       const keyword = list[index];
       if (!keyword || usedIds.has(keyword.id)) continue;
+      if (
+        (enforceEdges || enforceRoots) &&
+        !canAppendKeyword(currentWords, keyword, { enforceEdges, enforceRoots })
+      ) {
+        continue;
+      }
       const nextIds = currentIds.concat(keyword.id);
       const nextLength = computeTitleCandidateLength(nextIds, { isSubtitle, colorKeywordId });
       if (nextLength > limit) continue;
@@ -1800,10 +2127,28 @@ function expandTitleCombination({
   };
 }
 
-function selectKeywordsForTarget({ pools, usage, limit, isSubtitle, colorKeywordId }) {
+function selectKeywordsForTarget(options) {
+  const enforcementLevels = [
+    { enforceRoots: true, enforceEdges: true },
+    { enforceRoots: true, enforceEdges: false },
+    { enforceRoots: false, enforceEdges: true },
+    { enforceRoots: false, enforceEdges: false },
+  ];
+  for (const enforcement of enforcementLevels) {
+    const result = selectKeywordsForTargetInternal(options, enforcement);
+    if (result) {
+      return result;
+    }
+  }
+  return null;
+}
+
+function selectKeywordsForTargetInternal({ pools, usage, limit, isSubtitle, colorKeywordId }, enforcement = {}) {
   const MAX_CORE_CANDIDATES = 6;
   const MAX_FEATURE_CANDIDATES = 10;
   const MAX_SCENE_CANDIDATES = 8;
+
+  const { enforceEdges = false, enforceRoots = false } = enforcement || {};
 
   const comparator = (a, b) => {
     const usageDiff = (usage.get(a.id) || 0) - (usage.get(b.id) || 0);
@@ -1832,30 +2177,43 @@ function selectKeywordsForTarget({ pools, usage, limit, isSubtitle, colorKeyword
       if (keywordsShareCoreRoot(coreA, coreB)) continue;
       for (let f1 = 0; f1 < featureList.length; f1 += 1) {
         const feature1 = featureList[f1];
+        if (enforceRoots && keywordSharesRootWithList(feature1, [coreA])) continue;
         const featurePoolAfterF1 = featureList.filter((_, index) => index !== f1);
         if (!featurePoolAfterF1.length) continue;
         for (let f2 = 0; f2 < featurePoolAfterF1.length; f2 += 1) {
           const feature2 = featurePoolAfterF1[f2];
+          if (enforceRoots && keywordSharesRootWithList(feature2, [coreA, coreB, feature1])) continue;
           const baseIds = [brandId, coreA.id, feature1.id, coreB.id, feature2.id];
           const baseWords = [coreA, feature1, coreB, feature2];
+          if (enforceEdges && hasEdgeDuplicates(baseWords)) continue;
+          if (enforceRoots && hasRootOverlap(baseWords)) continue;
           const remainingFeatures = featurePoolAfterF1.filter((_, index) => index !== f2);
           for (let s = 0; s < sceneList.length; s += 1) {
             const scene1 = sceneList[s];
+            if (enforceRoots && keywordSharesRootWithList(scene1, baseWords)) continue;
             const ids = baseIds.concat(scene1.id);
             const words = baseWords.concat(scene1);
+            if (enforceEdges && hasEdgeDuplicates(words)) continue;
+            if (enforceRoots && hasRootOverlap(words)) continue;
             const baseLength = computeTitleCandidateLength(ids, { isSubtitle, colorKeywordId });
             if (baseLength > limit) continue;
             const remainingScenes = sceneList.filter((_, index) => index !== s);
-            const expanded = expandTitleCombination({
-              ids,
-              words,
-              remainingFeatures,
-              remainingScenes,
-              limit,
-              isSubtitle,
-              colorKeywordId,
-            });
+            const expanded = expandTitleCombination(
+              {
+                ids,
+                words,
+                remainingFeatures,
+                remainingScenes,
+                limit,
+                isSubtitle,
+                colorKeywordId,
+              },
+              enforcement,
+            );
             if (!expanded) continue;
+            const candidateWords = expanded.words.slice();
+            if (enforceEdges && hasEdgeDuplicates(candidateWords)) continue;
+            if (enforceRoots && hasRootOverlap(candidateWords)) continue;
             if (
               !best ||
               expanded.length > best.length ||
@@ -1875,7 +2233,7 @@ function selectKeywordsForTarget({ pools, usage, limit, isSubtitle, colorKeyword
   return { ids: finalIds, words: best.words.slice(), length: finalLength, heat: best.heat };
 }
 
-function autoGenerateTitles(spuId) {
+async function autoGenerateTitles(spuId) {
   const spu = state.spus.get(spuId);
   if (!spu) return;
   if (!state.keywords.size) {
@@ -1927,7 +2285,7 @@ function autoGenerateTitles(spuId) {
     const limit = getCharacterLimit(isSubtitle ? 'subtitle' : 'sku');
     let colorKeywordId = null;
     if (!isSubtitle) {
-      const colorKeyword = ensureColorSizeKeywordForSku(target.sku);
+      const colorKeyword = await ensureColorSizeKeywordForSku(target.sku);
       if (!colorKeyword) {
         showToast(`请补充 SKU ${target.sku?.name || ''} 的颜色或尺码信息`, true);
         return;
@@ -2010,14 +2368,22 @@ function generateSearchTerms(spuId, skuId, options = {}) {
 
   const limit = getSearchLimit();
   const selected = [];
+  const selectedKeywords = [];
   const selectedSet = new Set();
 
-  const tryAddKeyword = (keyword) => {
+  const tryAddKeyword = (keyword, { allowEdgeRepeat = false } = {}) => {
     if (!keyword || selectedSet.has(keyword.id)) return false;
+    if (!allowEdgeRepeat && selectedKeywords.length) {
+      const lastKeyword = selectedKeywords[selectedKeywords.length - 1];
+      if (keywordsCauseBoundaryDuplicate(lastKeyword, keyword)) {
+        return false;
+      }
+    }
     const tentative = selected.concat(keyword.id);
     const text = buildTextFromKeywordIds(tentative);
     if (text.length > limit) return false;
     selected.push(keyword.id);
+    selectedKeywords.push(keyword);
     selectedSet.add(keyword.id);
     incrementUsage(usage, keyword.id);
     return true;
@@ -2052,6 +2418,17 @@ function generateSearchTerms(spuId, skuId, options = {}) {
       }
     }
     if (!added) {
+      for (let i = 0; i < pool.length; i += 1) {
+        const keyword = pool[i];
+        if (tryAddKeyword(keyword, { allowEdgeRepeat: true })) {
+          pool.splice(i, 1);
+          added = true;
+          idleSteps = 0;
+          break;
+        }
+      }
+    }
+    if (!added) {
       idleSteps += 1;
     }
   }
@@ -2067,7 +2444,10 @@ function generateSearchTerms(spuId, skuId, options = {}) {
     .flat()
     .sort(comparator);
   for (const keyword of remainingCandidates) {
-    tryAddKeyword(keyword);
+    if (tryAddKeyword(keyword)) {
+      continue;
+    }
+    tryAddKeyword(keyword, { allowEdgeRepeat: true });
   }
 
   sku.searchKeywords = selected;
@@ -2200,14 +2580,15 @@ function collectSearchPreviewItems() {
   return items;
 }
 
-function formatPreviewItems(items, format = 'simple') {
+function formatPreviewItems(items, format = 'simple', kind = 'titles') {
   if (!Array.isArray(items) || !items.length) return '';
+  const transform = kind === 'search' ? transformSearchText : transformTitleText;
   if (format === 'detailed') {
     return items
-      .map((item, index) => `${index + 1}. ${item.label}: ${item.text}`)
+      .map((item, index) => `${index + 1}. ${item.label}: ${transform(item.text || '')}`)
       .join('\n\n');
   }
-  return items.map((item) => item.text).join('\n');
+  return items.map((item) => transform(item.text || '')).join('\n');
 }
 
 function getPreviewFormat(kind) {
@@ -2244,13 +2625,13 @@ function getPreviewCopyPayload(kind) {
   if (!bucket) return '';
   const format = getPreviewFormat(kind);
   if (bucket.aiItems?.length) {
-    return formatPreviewItems(bucket.aiItems, format);
+    return formatPreviewItems(bucket.aiItems, format, kind);
   }
   if (bucket.aiRaw) {
     return bucket.aiRaw;
   }
   if (bucket.items?.length) {
-    return formatPreviewItems(bucket.items, format);
+    return formatPreviewItems(bucket.items, format, kind);
   }
   return '';
 }
@@ -2272,7 +2653,7 @@ function renderTitlePreview() {
     titlePreviewElements.currentBlock.hidden = !hasItems;
     if (hasItems) {
       if (titlePreviewElements.text) {
-        titlePreviewElements.text.textContent = formatPreviewItems(bucket.items, format);
+        titlePreviewElements.text.textContent = formatPreviewItems(bucket.items, format, 'titles');
       }
       if (titlePreviewElements.count) {
         titlePreviewElements.count.textContent = `${bucket.items.length} 条内容`;
@@ -2300,7 +2681,9 @@ function renderTitlePreview() {
       }
       if (titlePreviewElements.aiText) {
         if (hasAiText) {
-          const text = bucket.aiItems?.length ? formatPreviewItems(bucket.aiItems, format) : bucket.aiRaw;
+          const text = bucket.aiItems?.length
+            ? formatPreviewItems(bucket.aiItems, format, 'titles')
+            : bucket.aiRaw;
           titlePreviewElements.aiText.textContent = text;
           titlePreviewElements.aiText.hidden = false;
           if (titlePreviewElements.aiChars) {
@@ -2339,8 +2722,11 @@ function renderTitlePreview() {
           wordEl.textContent = entry.word;
           const countEl = document.createElement('span');
           countEl.className = 'frequency-count';
-          countEl.textContent = String(entry.count);
-          row.append(wordEl, countEl);
+          countEl.textContent = `${entry.count} 次`;
+          const ratioEl = document.createElement('span');
+          ratioEl.className = 'frequency-ratio';
+          ratioEl.textContent = formatFrequencyRatio(entry.ratio);
+          row.append(wordEl, countEl, ratioEl);
           fragment.appendChild(row);
         }
         titlePreviewElements.frequencyList.appendChild(fragment);
@@ -2366,7 +2752,7 @@ function renderSearchPreview() {
     searchPreviewElements.currentBlock.hidden = !hasItems;
     if (hasItems) {
       if (searchPreviewElements.text) {
-        searchPreviewElements.text.textContent = formatPreviewItems(bucket.items, format);
+        searchPreviewElements.text.textContent = formatPreviewItems(bucket.items, format, 'search');
       }
       if (searchPreviewElements.count) {
         searchPreviewElements.count.textContent = `${bucket.items.length} 条内容`;
@@ -2394,7 +2780,9 @@ function renderSearchPreview() {
       }
       if (searchPreviewElements.aiText) {
         if (hasAiText) {
-          const text = bucket.aiItems?.length ? formatPreviewItems(bucket.aiItems, format) : bucket.aiRaw;
+          const text = bucket.aiItems?.length
+            ? formatPreviewItems(bucket.aiItems, format, 'search')
+            : bucket.aiRaw;
           searchPreviewElements.aiText.textContent = text;
           searchPreviewElements.aiText.hidden = false;
           if (searchPreviewElements.aiChars) {
@@ -2416,6 +2804,39 @@ function renderSearchPreview() {
   if (searchPreviewElements.aiReset) {
     searchPreviewElements.aiReset.disabled = !hasAiText;
   }
+
+  const freqVisible = Array.isArray(bucket.frequencies) && bucket.frequencies.length > 0;
+  const showFrequencyBlock = bucket.enableFrequency && (hasItems || freqVisible);
+  if (searchPreviewElements.frequencyBlock) {
+    searchPreviewElements.frequencyBlock.hidden = !showFrequencyBlock;
+    if (searchPreviewElements.frequencyList) {
+      searchPreviewElements.frequencyList.innerHTML = '';
+      if (freqVisible) {
+        const fragment = document.createDocumentFragment();
+        for (const entry of bucket.frequencies) {
+          const row = document.createElement('div');
+          row.className = 'frequency-row';
+          const wordEl = document.createElement('span');
+          wordEl.className = 'frequency-word';
+          wordEl.textContent = entry.word;
+          const countEl = document.createElement('span');
+          countEl.className = 'frequency-count';
+          countEl.textContent = `${entry.count} 次`;
+          const ratioEl = document.createElement('span');
+          ratioEl.className = 'frequency-ratio';
+          ratioEl.textContent = formatFrequencyRatio(entry.ratio);
+          row.append(wordEl, countEl, ratioEl);
+          fragment.appendChild(row);
+        }
+        searchPreviewElements.frequencyList.appendChild(fragment);
+      } else if (showFrequencyBlock) {
+        const empty = document.createElement('p');
+        empty.className = 'hint';
+        empty.textContent = '暂无统计结果，请点击“生成词频统计”。';
+        searchPreviewElements.frequencyList.appendChild(empty);
+      }
+    }
+  }
 }
 
 function computeWordFrequencies(items) {
@@ -2429,8 +2850,9 @@ function computeWordFrequencies(items) {
       counts.set(word, (counts.get(word) || 0) + 1);
     }
   }
+  const denominator = computeFrequencyDenominator();
   return Array.from(counts.entries())
-    .map(([word, count]) => ({ word, count }))
+    .map(([word, count]) => ({ word, count, ratio: count / denominator }))
     .sort((a, b) => b.count - a.count || a.word.localeCompare(b.word));
 }
 
@@ -2456,6 +2878,33 @@ function showTitleFrequencies() {
 
 function clearTitleFrequencies() {
   const bucket = getPreviewBucket('titles');
+  if (!bucket) return;
+  bucket.frequencies = null;
+  renderPreview();
+}
+
+function showSearchFrequencies() {
+  const bucket = getPreviewBucket('search');
+  if (!bucket) return;
+  const items = getActivePreviewItems('search');
+  if (!items?.length) {
+    showToast('暂无可统计的内容', true);
+    return;
+  }
+  const frequencies = computeWordFrequencies(items);
+  if (!frequencies.length) {
+    showToast('未检测到可统计的单词', true);
+    bucket.frequencies = [];
+    renderPreview();
+    return;
+  }
+  bucket.frequencies = frequencies;
+  renderPreview();
+  showToast('搜索词词频统计已生成');
+}
+
+function clearSearchFrequencies() {
+  const bucket = getPreviewBucket('search');
   if (!bucket) return;
   bucket.frequencies = null;
   renderPreview();
@@ -2870,7 +3319,7 @@ if (titlePreviewElements.exportBtn) {
     }
     setPreviewItems('titles', items);
     const format = getPreviewFormat('titles');
-    const payload = formatPreviewItems(items, format);
+    const payload = formatPreviewItems(items, format, 'titles');
     navigator.clipboard?.writeText(payload).then(() => {
       showToast('标题已导出并复制到剪贴板');
     }).catch(() => {
@@ -2928,6 +3377,14 @@ if (titlePreviewElements.frequencyClear) {
   titlePreviewElements.frequencyClear.addEventListener('click', clearTitleFrequencies);
 }
 
+if (searchPreviewElements.frequencyBtn) {
+  searchPreviewElements.frequencyBtn.addEventListener('click', showSearchFrequencies);
+}
+
+if (searchPreviewElements.frequencyClear) {
+  searchPreviewElements.frequencyClear.addEventListener('click', clearSearchFrequencies);
+}
+
 if (searchPreviewElements.exportBtn) {
   searchPreviewElements.exportBtn.addEventListener('click', () => {
     const items = collectSearchPreviewItems();
@@ -2937,7 +3394,7 @@ if (searchPreviewElements.exportBtn) {
     }
     setPreviewItems('search', items);
     const format = getPreviewFormat('search');
-    const payload = formatPreviewItems(items, format);
+    const payload = formatPreviewItems(items, format, 'search');
     navigator.clipboard?.writeText(payload).then(() => {
       showToast('搜索词已导出并复制到剪贴板');
     }).catch(() => {
