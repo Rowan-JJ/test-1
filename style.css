@@ -359,16 +359,37 @@ button.text.danger:hover {
   display: flex;
   flex-direction: column;
   gap: 16px;
-  max-height: min(360px, 33vh);
   width: 100%;
   max-width: none;
+  overflow: hidden;
+}
+
+.library-panel:not(.collapsed) .library {
+  height: clamp(260px, 33vh, 360px);
+}
+
+.library-panel.collapsed .library {
+  height: auto;
+}
+
+.library-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.library-panel.collapsed .library-body {
+  display: none;
 }
 
 .keyword-scroll {
-  flex: 1;
+  flex: 1 1 auto;
   min-height: 0;
+  max-height: 100%;
   overflow-y: auto;
-  padding-right: 4px;
+  padding-right: 8px;
   scrollbar-width: thin;
 }
 
@@ -406,16 +427,6 @@ button.text.danger:hover {
   gap: 12px;
   flex-wrap: wrap;
   flex: 1 1 auto;
-}
-
-.library-body {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
-.library-panel.collapsed .library-body {
-  display: none;
 }
 
 .library-legend {
