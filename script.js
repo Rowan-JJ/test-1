@@ -2385,9 +2385,21 @@ function selectKeywordsForTargetInternal(
   };
 
   const spread = Math.max(1, Math.ceil(targetCount || 1));
-  const coreLimit = Math.min((pools.core || []).length, Math.max(6, spread * 2));
-  const featureLimit = Math.min((pools.feature || []).length, Math.max(8, spread * 3));
-  const sceneLimit = Math.min((pools.scene || []).length, Math.max(4, spread * 2));
+  const CORE_MAX = 12;
+  const FEATURE_MAX = 16;
+  const SCENE_MAX = 12;
+  const coreLimit = Math.min(
+    (pools.core || []).length,
+    Math.max(6, Math.min(spread * 2, CORE_MAX)),
+  );
+  const featureLimit = Math.min(
+    (pools.feature || []).length,
+    Math.max(8, Math.min(spread * 3, FEATURE_MAX)),
+  );
+  const sceneLimit = Math.min(
+    (pools.scene || []).length,
+    Math.max(4, Math.min(spread * 2, SCENE_MAX)),
+  );
 
   const coreList = (pools.core || []).slice().sort(comparator).slice(0, coreLimit);
   const featureList = (pools.feature || []).slice().sort(comparator).slice(0, featureLimit);
