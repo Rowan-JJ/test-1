@@ -988,6 +988,19 @@ function computeSpuKeywordUsage(spu, { excludeSearchSkuId } = {}) {
   return usage;
 }
 
+function computeTitleSignature(ids = []) {
+  if (!Array.isArray(ids) || !ids.length) return '';
+  return ids
+    .filter(
+      (id) =>
+        id &&
+        id !== FIXED_KEYWORDS.brand.id &&
+        !id.startsWith('__color_') &&
+        !id.startsWith('__size_'),
+    )
+    .join('|');
+}
+
 function ensureFixedKeywords() {
   for (const keyword of Object.values(FIXED_KEYWORDS)) {
     if (!state.keywords.has(keyword.id)) {
@@ -2357,26 +2370,28 @@ function selectKeywordsForTarget(options) {
 }
 
 function selectKeywordsForTargetInternal(
-  { pools, usage, limit, isSubtitle, colorKeywords, colorText },
+  { pools, usage, limit, isSubtitle, colorKeywords, colorText, targetCount = 1 },
   enforcement = {},
 ) {
-  const MAX_CORE_CANDIDATES = 6;
-  const MAX_FEATURE_CANDIDATES = 10;
-  const MAX_SCENE_CANDIDATES = 8;
-
   const { enforceEdges = false, enforceRoots = false } = enforcement || {};
 
+  const usageMap = usage instanceof Map ? usage : new Map();
   const comparator = (a, b) => {
+    const usageDiff = (usageMap.get(a.id) || 0) - (usageMap.get(b.id) || 0);
+    if (usageDiff !== 0) return usageDiff;
     const heatDiff = getKeywordHeatValue(b) - getKeywordHeatValue(a);
     if (heatDiff !== 0) return heatDiff;
-    const usageDiff = (usage.get(a.id) || 0) - (usage.get(b.id) || 0);
-    if (usageDiff !== 0) return usageDiff;
     return a.text.localeCompare(b.text, 'zh-Hans-CN');
   };
 
-  const coreList = (pools.core || []).slice().sort(comparator).slice(0, MAX_CORE_CANDIDATES);
-  const featureList = (pools.feature || []).slice().sort(comparator).slice(0, MAX_FEATURE_CANDIDATES);
-  const sceneList = (pools.scene || []).slice().sort(comparator).slice(0, MAX_SCENE_CANDIDATES);
+  const spread = Math.max(1, Math.ceil(targetCount || 1));
+  const coreLimit = Math.min((pools.core || []).length, Math.max(6, spread * 2));
+  const featureLimit = Math.min((pools.feature || []).length, Math.max(8, spread * 3));
+  const sceneLimit = Math.min((pools.scene || []).length, Math.max(4, spread * 2));
+
+  const coreList = (pools.core || []).slice().sort(comparator).slice(0, coreLimit);
+  const featureList = (pools.feature || []).slice().sort(comparator).slice(0, featureLimit);
+  const sceneList = (pools.scene || []).slice().sort(comparator).slice(0, sceneLimit);
 
   if (coreList.length < 2 || featureList.length < 2 || sceneList.length < 1) {
     return null;
@@ -2532,6 +2547,9 @@ async function autoGenerateTitles(spuId) {
   ];
 
   const assignments = [];
+  const targetCount = targets.length || 1;
+  const seenSignatures = new Set();
+  const usagePenalty = Math.max(2, targetCount);
 
   for (const target of targets) {
     const isSubtitle = target.type === 'subtitle';
@@ -2547,24 +2565,67 @@ async function autoGenerateTitles(spuId) {
       colorKeywords = [ensured.color, ensured.size].filter(Boolean);
       colorText = target.sku?.colorText || '';
     }
-
-    const combination = selectKeywordsForTarget({
+    const baseOptions = {
       pools,
-      usage,
       limit,
       isSubtitle,
       colorKeywords,
       colorText,
-    });
+      targetCount,
+    };
+
+    let attempt = 0;
+    const maxAttempts = 6;
+    let combination = null;
+    let signature = '';
+    let fallbackCombination = null;
+    let fallbackSignature = '';
+    const attemptUsage = new Map(usage);
+
+    while (attempt < maxAttempts) {
+      const candidate = selectKeywordsForTarget({ ...baseOptions, usage: attemptUsage });
+      if (!candidate) {
+        break;
+      }
+      const candidateSignature = computeTitleSignature(candidate.ids);
+      const isDuplicate = !isSubtitle && candidateSignature && seenSignatures.has(candidateSignature);
+      if (isDuplicate) {
+        if (
+          !fallbackCombination ||
+          candidate.length > fallbackCombination.length ||
+          (candidate.length === fallbackCombination.length && candidate.heat > fallbackCombination.heat)
+        ) {
+          fallbackCombination = candidate;
+          fallbackSignature = candidateSignature;
+        }
+        for (const keyword of candidate.words) {
+          incrementUsage(attemptUsage, keyword.id, usagePenalty);
+        }
+        attempt += 1;
+        continue;
+      }
+      combination = candidate;
+      signature = candidateSignature;
+      break;
+    }
+
+    if (!combination && fallbackCombination) {
+      combination = fallbackCombination;
+      signature = fallbackSignature;
+    }
 
     if (!combination) {
       showToast('未能生成满足字符限制的标题，请调整关键词或提高上限', true);
       return;
     }
 
+    if (signature) {
+      seenSignatures.add(signature);
+    }
+
     assignments.push(() => target.apply(combination.ids.slice()));
     for (const keyword of combination.words) {
-      incrementUsage(usage, keyword.id);
+      incrementUsage(usage, keyword.id, usagePenalty);
     }
   }
 
@@ -2628,10 +2689,10 @@ async function generateSearchTerms(spuId, skuId, options = {}) {
   const usage = computeSpuKeywordUsage(spu, { excludeSearchSkuId: sku.id });
 
   const comparator = (a, b) => {
-    const heatDiff = getKeywordHeatValue(b) - getKeywordHeatValue(a);
-    if (heatDiff !== 0) return heatDiff;
     const usageDiff = (usage.get(a.id) || 0) - (usage.get(b.id) || 0);
     if (usageDiff !== 0) return usageDiff;
+    const heatDiff = getKeywordHeatValue(b) - getKeywordHeatValue(a);
+    if (heatDiff !== 0) return heatDiff;
     return a.text.localeCompare(b.text, 'zh-Hans-CN');
   };
 
