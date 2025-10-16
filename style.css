@@ -137,9 +137,6 @@ p {
   z-index: 30;
   width: 100%;
   align-self: stretch;
-  margin-inline: calc(-1 * var(--layout-padding, 24px));
-  padding-inline: var(--layout-padding, 24px);
-  box-sizing: border-box;
 }
 
 .pending-keyword-panel {
@@ -264,30 +261,6 @@ p {
   border: 1px solid var(--border);
 }
 
-.library-legend {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px 20px;
-  font-size: 0.85rem;
-  color: var(--text-secondary);
-}
-
-.library-legend span {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  white-space: nowrap;
-}
-
-.library-legend i {
-  display: inline-block;
-  width: 12px;
-  height: 12px;
-  border-radius: 999px;
-  background: var(--legend-color, var(--accent));
-  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.06);
-}
-
 .field-group {
   display: flex;
   flex-direction: column;
@@ -406,6 +379,39 @@ button.text.danger:hover {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.library-title-group {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  flex: 1 1 auto;
+}
+
+.library-legend {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+}
+
+.library-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.library-legend i {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 999px;
+  background: var(--legend-color, var(--accent));
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.06);
 }
 
 
@@ -423,8 +429,8 @@ button.text.danger:hover {
 }
 
 .keyword-category .keyword-list {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  display: flex;
+  flex-direction: column;
   gap: 6px;
 }
 
@@ -459,7 +465,7 @@ button.text.danger:hover {
 
 .keyword-pill {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 6px;
   padding: 3px 6px;
@@ -474,6 +480,10 @@ button.text.danger:hover {
   min-height: 26px;
 }
 
+.keyword-list .keyword-pill {
+  width: 100%;
+}
+
 .keyword-pill:active {
   cursor: grabbing;
 }
@@ -483,18 +493,19 @@ button.text.danger:hover {
   flex-direction: column;
   gap: 2px;
   min-width: 0;
+  flex: 1 1 auto;
 }
 
 .keyword-pill .keyword-label {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: normal;
+  word-break: break-word;
 }
 
 .keyword-pill .keyword-meta {
   font-size: 0.62rem;
   opacity: 0.85;
-  white-space: nowrap;
+  white-space: normal;
+  word-break: break-word;
 }
 
 .keyword-pill .keyword-meta[hidden] {

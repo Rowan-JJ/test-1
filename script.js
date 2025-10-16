@@ -646,7 +646,7 @@ function validateContainerLength(spuId, containerType, containerId, keywords) {
   if (text.length > limit) {
     const label =
       containerType === 'subtitle'
-        ? '副标题'
+        ? '父标题'
         : containerType === 'search'
           ? '搜索词'
           : '标题';
@@ -1771,7 +1771,7 @@ function collectTitlePreviewItems() {
     if (subtitleText) {
       items.push({
         id: `${spu.id}_subtitle`,
-        label: `${spuLabel}（副标题）`,
+        label: `${spuLabel}（父标题）`,
         text: subtitleText,
         type: 'subtitle',
         spuId: spu.id,
@@ -2219,14 +2219,14 @@ function exportSubtitle(spuId) {
     .map((keywordId) => state.keywords.get(keywordId)?.text)
     .filter(Boolean);
   if (!keywords.length) {
-    alert('该 SPU 的副标题为空，请先拖入关键词或自动生成。');
+    alert('该 SPU 的父标题为空，请先拖入关键词或自动生成。');
     return;
   }
   const subtitle = keywords.join(' ');
   navigator.clipboard?.writeText(subtitle).then(() => {
-    showToast('副标题已复制到剪贴板');
+    showToast('父标题已复制到剪贴板');
   }).catch(() => {
-    showToast(`副标题：${subtitle}`, true);
+    showToast(`父标题：${subtitle}`, true);
   });
 }
 

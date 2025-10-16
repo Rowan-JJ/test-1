@@ -61,7 +61,7 @@
             <input id="sku-title-limit" type="number" min="20" max="400" value="200" />
           </div>
           <div class="field-group">
-            <label for="subtitle-limit">副标题字符上限</label>
+            <label for="subtitle-limit">父标题字符上限</label>
             <input id="subtitle-limit" type="number" min="20" max="250" value="125" />
           </div>
           <div class="field-group">
@@ -156,14 +156,16 @@
     <section class="panel library-panel" id="library-section">
       <div class="library">
         <div class="library-header">
-          <h3>关键词库</h3>
+          <div class="library-title-group">
+            <h3>关键词库</h3>
+            <div class="library-legend" id="library-type-legend">
+              <span data-type="core"><i></i>核心词</span>
+              <span data-type="feature"><i></i>特征词</span>
+              <span data-type="scene"><i></i>场景词</span>
+              <span data-type="minor"><i></i>小语种词</span>
+            </div>
+          </div>
           <button id="clear-library" class="secondary" type="button">清空所有关键词</button>
-        </div>
-        <div class="library-legend" id="library-type-legend">
-          <span data-type="core"><i></i>核心词</span>
-          <span data-type="feature"><i></i>特征词</span>
-          <span data-type="scene"><i></i>场景词</span>
-          <span data-type="minor"><i></i>小语种词</span>
         </div>
         <p class="hint">拖动关键词滑块到任意 SKU 的标题或搜索词框中，或单击复制信息。</p>
         <div class="keyword-scroll">
@@ -362,7 +364,7 @@
           <button class="secondary bulk-action export-all" type="button">批量导出 SKU 标题</button>
           <button class="secondary bulk-action bulk-generate-search" type="button">批量生成搜索词</button>
           <button class="secondary bulk-action export-search" type="button">批量导出搜索词</button>
-          <button class="secondary subtitle-export" type="button">导出副标题</button>
+          <button class="secondary subtitle-export" type="button">导出父标题</button>
           <button class="text danger delete-spu" type="button">删除 SPU</button>
         </div>
       </div>
@@ -370,10 +372,10 @@
       <p class="hint formula-hint">搜索词公式：20% 核心词 + 20% 特征词 + 40% 场景词 + 20% 小语种词</p>
       <div class="subtitle-block">
         <div class="subtitle-header">
-          <h4>副标题</h4>
+          <h4>父标题</h4>
         </div>
         <div class="title-dropzone subtitle-dropzone" data-container-type="subtitle" data-container-id="subtitle">
-          <p class="placeholder">拖放关键词组成 SPU 副标题</p>
+          <p class="placeholder">拖放关键词组成 SPU 父标题</p>
           <div class="dropzone-footer">
             <span class="char-counter" data-counter-type="subtitle">0 / 125</span>
           </div>
