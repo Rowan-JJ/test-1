@@ -18,6 +18,16 @@
       <p id="access-error" class="access-error" role="alert" hidden>访问码错误，请重试。</p>
     </div>
   </div>
+  <nav class="top-nav">
+    <div class="nav-brand">Listing 助手</div>
+    <ul class="nav-links">
+      <li><a href="#product-section">商品结构</a></li>
+      <li><a href="#keyword-section">关键词管理</a></li>
+      <li><a href="#library-section">关键词库</a></li>
+      <li><a href="#spu-section">标题与搜索词</a></li>
+      <li><a href="#preview-section">预览区</a></li>
+    </ul>
+  </nav>
   <header class="app-header">
     <h1>亚马逊 Listing 标题与五点助手</h1>
     <p>管理关键词、为不同 SKU 组合标题与搜索词，并使用 DeepSeek 生成五点描述。</p>
@@ -25,7 +35,7 @@
 
   <main class="layout">
     <div class="top-grid">
-      <section class="panel product-panel">
+      <section class="panel product-panel" id="product-section">
         <h2>商品结构</h2>
         <form id="spu-form" class="spu-form">
           <div class="field-group">
@@ -61,7 +71,7 @@
         </div>
       </section>
 
-      <section class="panel keyword-panel">
+      <section class="panel keyword-panel" id="keyword-section">
         <h2>关键词管理</h2>
         <form id="keyword-form" class="keyword-form">
           <div class="field-group">
@@ -126,47 +136,51 @@
               placeholder="每行一个关键词，可按“关键词 | 热度 | 排名”格式填写，热度和排名可选"
             ></textarea>
             <div class="bulk-actions">
-              <button id="bulk-keyword-submit" class="secondary" type="button">识别并加入关键词库</button>
+              <button id="bulk-keyword-submit" class="secondary bulk-action" type="button">识别并加入关键词库</button>
               <button id="bulk-keyword-clear" class="text" type="button">清空输入</button>
             </div>
             <p class="hint">批量上传的关键词将进入预备关键词区，系统会自动调用 DeepSeek 识别类型后加入关键词库。</p>
           </div>
         </details>
+
+        <div class="pending-keyword-panel" id="pending-keyword-panel" hidden>
+          <div class="library-header">
+            <h3>预备关键词</h3>
+            <p class="hint">等待分类或分类失败的关键词会显示在这里。</p>
+          </div>
+          <ul class="pending-keyword-list" id="pending-keyword-list"></ul>
+        </div>
       </section>
     </div>
 
-    <section class="panel pending-keyword-panel" id="pending-keyword-panel" hidden>
-      <div class="library-header">
-        <h3>预备关键词</h3>
-        <p class="hint">等待分类或分类失败的关键词会显示在这里。</p>
-      </div>
-      <ul class="pending-keyword-list" id="pending-keyword-list"></ul>
-    </section>
-
-    <section class="panel library-panel" id="keyword-library">
+    <section class="panel library-panel" id="library-section">
       <div class="library">
         <div class="library-header">
           <h3>关键词库</h3>
           <button id="clear-library" class="secondary" type="button">清空所有关键词</button>
+        </div>
+        <div class="library-legend" id="library-type-legend">
+          <span data-type="core"><i></i>核心词</span>
+          <span data-type="feature"><i></i>特征词</span>
+          <span data-type="scene"><i></i>场景词</span>
+          <span data-type="minor"><i></i>小语种词</span>
         </div>
         <p class="hint">拖动关键词滑块到任意 SKU 的标题框中，或单击复制信息。</p>
         <div class="keyword-list" id="keyword-list"></div>
       </div>
     </section>
 
-    <section class="panel spu-board">
+    <section class="panel spu-board" id="spu-section">
       <h2>SPU 与 SKU 标题区</h2>
       <p class="hint">所有生成的标题与搜索词都会在此处纵向排列，便于在同一行查看完整内容。</p>
       <div id="spu-container" class="spu-container"></div>
     </section>
 
-    <section class="panel preview-panel" id="preview-panel">
+    <section class="panel preview-panel" id="preview-section">
       <h2>标题与搜索词预览区</h2>
       <p class="hint">点击批量导出按钮后，可在此查看全部标题与搜索词，统计词频或交给 AI 调整。</p>
       <div class="preview-actions">
         <button id="preview-copy" class="secondary" type="button">复制预览内容</button>
-        <button id="preview-copy-all" class="secondary" type="button">导出所有标题与搜索词</button>
-        <button id="preview-frequency" class="secondary" type="button">词频统计</button>
         <button id="preview-ai-adjust" class="secondary" type="button">AI 调整</button>
       </div>
       <p class="hint" id="preview-empty-hint">暂未生成内容，请先在上方批量导出。</p>
@@ -180,14 +194,21 @@
       <div class="preview-block" id="preview-ai-block" hidden>
         <div class="preview-block-header">
           <h3>AI 调整结果</h3>
-          <button class="text" id="preview-ai-reset" type="button">清除 AI 结果</button>
+          <div class="preview-ai-actions">
+            <button class="secondary" id="preview-export-results" type="button">导出结果</button>
+            <button class="text" id="preview-ai-reset" type="button">清除 AI 结果</button>
+          </div>
         </div>
+        <p class="hint" id="preview-ai-empty">暂无 AI 调整结果，将使用当前内容导出。</p>
         <pre class="preview-text" id="preview-ai-text"></pre>
       </div>
       <div class="preview-block" id="preview-frequency-block" hidden>
         <div class="preview-block-header">
           <h3>词频统计</h3>
-          <button class="text" id="preview-frequency-close" type="button">隐藏</button>
+          <div class="preview-frequency-actions">
+            <button class="secondary" id="preview-frequency" type="button">生成词频统计</button>
+            <button class="text" id="preview-frequency-close" type="button">清空结果</button>
+          </div>
         </div>
         <div class="frequency-list" id="preview-frequency-list"></div>
       </div>
@@ -218,13 +239,7 @@
             <button class="secondary search-export" type="button">导出搜索词</button>
           </div>
         </div>
-        <div class="search-controls">
-          <label>
-            字符上限
-            <input class="search-limit" type="number" min="50" max="400" value="250" />
-          </label>
-          <span class="char-counter" data-counter-type="search">0 / 250</span>
-        </div>
+        <span class="char-counter" data-counter-type="search">0 / 250</span>
         <textarea class="search-text" rows="2" placeholder="点击生成搜索词或手动输入"></textarea>
       </div>
     </div>
@@ -240,8 +255,9 @@
         <div class="spu-actions">
           <button class="secondary add-sku" type="button">新增 SKU</button>
           <button class="secondary auto-generate" type="button">自动生成标题</button>
-          <button class="secondary export-all" type="button">批量导出 SKU 标题</button>
-          <button class="secondary export-search" type="button">批量导出搜索词</button>
+          <button class="secondary bulk-action export-all" type="button">批量导出 SKU 标题</button>
+          <button class="secondary bulk-action bulk-generate-search" type="button">批量生成搜索词</button>
+          <button class="secondary bulk-action export-search" type="button">批量导出搜索词</button>
           <button class="secondary subtitle-export" type="button">导出副标题</button>
           <button class="text danger delete-spu" type="button">删除 SPU</button>
         </div>
@@ -263,7 +279,7 @@
         <div class="bulk-body">
           <textarea class="bulk-sku-text" rows="3" placeholder="每行一个 SKU 名称"></textarea>
           <div class="bulk-actions">
-            <button class="secondary bulk-add-sku" type="button">添加到列表</button>
+            <button class="secondary bulk-action bulk-add-sku" type="button">添加到列表</button>
             <button class="text bulk-clear" type="button">清空</button>
           </div>
         </div>
@@ -298,7 +314,7 @@
   </template>
 
   <footer class="app-footer">
-    <p>拖拽滑块组成标题，导出后即可生成用于亚马逊 Listing 的标题文本。</p>
+    <p>此版本为内部测试版，体验反馈请联系 zjjdgryx@163.com。</p>
   </footer>
 
   <script src="script.js" type="module"></script>

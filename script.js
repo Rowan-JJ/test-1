@@ -75,13 +75,13 @@ const clearLibraryBtn = document.getElementById('clear-library');
 const keywordTypeSelect = document.getElementById('keyword-type');
 const keywordColorInput = document.getElementById('keyword-color');
 const typeColorGrid = document.getElementById('type-color-grid');
+const libraryTypeLegend = document.getElementById('library-type-legend');
 const spuForm = document.getElementById('spu-form');
 const spuContainer = document.getElementById('spu-container');
 const apiKeyInput = document.getElementById('api-key');
 const skuTitleLimitInput = document.getElementById('sku-title-limit');
 const subtitleLimitInput = document.getElementById('subtitle-limit');
 const searchLimitInput = document.getElementById('search-limit');
-const bulkKeywordDetails = document.getElementById('bulk-keyword-details');
 const bulkKeywordTextarea = document.getElementById('bulk-keyword-text');
 const bulkKeywordSubmit = document.getElementById('bulk-keyword-submit');
 const bulkKeywordClear = document.getElementById('bulk-keyword-clear');
@@ -94,7 +94,6 @@ const previewOriginalBlock = document.getElementById('preview-original-block');
 const previewOriginalText = document.getElementById('preview-original-text');
 const previewCountEl = document.getElementById('preview-count');
 const previewCopyBtn = document.getElementById('preview-copy');
-const previewCopyAllBtn = document.getElementById('preview-copy-all');
 const previewFrequencyBtn = document.getElementById('preview-frequency');
 const previewFrequencyBlock = document.getElementById('preview-frequency-block');
 const previewFrequencyList = document.getElementById('preview-frequency-list');
@@ -102,7 +101,9 @@ const previewFrequencyCloseBtn = document.getElementById('preview-frequency-clos
 const previewAiBtn = document.getElementById('preview-ai-adjust');
 const previewAiBlock = document.getElementById('preview-ai-block');
 const previewAiText = document.getElementById('preview-ai-text');
+const previewAiEmptyHint = document.getElementById('preview-ai-empty');
 const previewAiResetBtn = document.getElementById('preview-ai-reset');
+const previewExportBtn = document.getElementById('preview-export-results');
 
 const accessGate = document.getElementById('access-gate');
 const accessForm = document.getElementById('access-form');
@@ -157,12 +158,12 @@ function createSearchPattern() {
   return pattern;
 }
 
-function getSearchLimit(sku) {
-  const limit = Number(sku?.searchLimit);
+function getSearchLimit() {
+  const limit = Number(state.settings.searchTermLimit);
   if (Number.isFinite(limit) && limit > 0) {
     return limit;
   }
-  return state.settings.searchTermLimit || DEFAULT_SEARCH_TERM_LIMIT;
+  return DEFAULT_SEARCH_TERM_LIMIT;
 }
 
 function updateKeywordColorInput(selectedType = keywordTypeSelect.value) {
@@ -170,6 +171,20 @@ function updateKeywordColorInput(selectedType = keywordTypeSelect.value) {
   if (keywordColorInput) {
     keywordColorInput.value = color;
   }
+}
+
+function renderLibraryTypeLegend() {
+  if (!libraryTypeLegend) return;
+  const items = libraryTypeLegend.querySelectorAll('[data-type]');
+  items.forEach((item) => {
+    const type = item.dataset.type;
+    if (!type) return;
+    const color = state.keywordTypeColors[type] || DEFAULT_TYPE_COLORS[type];
+    const swatch = item.querySelector('i');
+    if (swatch) {
+      swatch.style.setProperty('--legend-color', color || '#4C6EF5');
+    }
+  });
 }
 
 function createKeyword({ text, heat, rank, color, type }) {
@@ -304,7 +319,7 @@ function updateSearchMeta(skuElement, sku) {
   if (!skuElement || !sku) return;
   const textarea = skuElement.querySelector('.search-text');
   const counter = skuElement.querySelector('.char-counter[data-counter-type="search"]');
-  const limit = getSearchLimit(sku);
+  const limit = getSearchLimit();
   if (textarea) {
     const value = textarea.value ?? '';
     const over = value.length > limit;
@@ -850,8 +865,6 @@ function addSku(spuId, { name }) {
     name,
     titleKeywords: [],
     searchTerms: '',
-    searchLimit: state.settings.searchTermLimit || DEFAULT_SEARCH_TERM_LIMIT,
-    customSearchLimit: false,
   };
   spu.skus.push(sku);
   renderSpu(spuId);
@@ -983,16 +996,11 @@ function renderSku(spuId, sku) {
   }));
   updateSkuMeta(skuElement, sku);
 
-  if (!Number.isFinite(Number(sku.searchLimit))) {
-    sku.searchLimit = state.settings.searchTermLimit || DEFAULT_SEARCH_TERM_LIMIT;
-    sku.customSearchLimit = false;
-  }
   if (typeof sku.searchTerms !== 'string') {
     sku.searchTerms = sku.searchTerms ? String(sku.searchTerms) : '';
   }
 
   const searchTextarea = skuElement.querySelector('.search-text');
-  const searchLimitField = skuElement.querySelector('.search-limit');
   const searchGenerateBtn = skuElement.querySelector('.search-generate');
   const searchExportBtn = skuElement.querySelector('.search-export');
 
@@ -1000,19 +1008,6 @@ function renderSku(spuId, sku) {
     searchTextarea.value = sku.searchTerms || '';
     searchTextarea.addEventListener('input', () => {
       sku.searchTerms = searchTextarea.value;
-      updateSearchMeta(skuElement, sku);
-    });
-  }
-
-  if (searchLimitField) {
-    const limit = getSearchLimit(sku);
-    sku.searchLimit = limit;
-    searchLimitField.value = String(limit);
-    searchLimitField.addEventListener('input', () => {
-      const next = clampLimitValue(searchLimitField.value, sku.searchLimit, { min: 50, max: 400 });
-      sku.searchLimit = next;
-      sku.customSearchLimit = next !== (state.settings.searchTermLimit || DEFAULT_SEARCH_TERM_LIMIT);
-      searchLimitField.value = String(next);
       updateSearchMeta(skuElement, sku);
     });
   }
@@ -1053,6 +1048,7 @@ function bindSpuEvents(card, spuId) {
   const subtitleExportBtn = card.querySelector('.subtitle-export');
   const exportAllBtn = card.querySelector('.export-all');
   const exportSearchBtn = card.querySelector('.export-search');
+  const bulkGenerateSearchBtn = card.querySelector('.bulk-generate-search');
   const deleteSpuBtn = card.querySelector('.delete-spu');
   const generateBtn = card.querySelector('.generate-five');
   const promptTextarea = card.querySelector('.five-point-prompt');
@@ -1109,6 +1105,10 @@ function bindSpuEvents(card, spuId) {
 
   if (exportAllBtn) {
     exportAllBtn.onclick = () => exportAllSkuTitles(spuId);
+  }
+
+  if (bulkGenerateSearchBtn) {
+    bulkGenerateSearchBtn.onclick = () => generateAllSearchTerms(spuId);
   }
 
   if (exportSearchBtn) {
@@ -1283,14 +1283,16 @@ function autoGenerateTitles(spuId) {
   showToast('已根据公式生成标题，可继续调整顺序');
 }
 
-function generateSearchTerms(spuId, skuId) {
+function generateSearchTerms(spuId, skuId, options = {}) {
   const spu = state.spus.get(spuId);
   if (!spu) return;
   const sku = spu.skus.find((item) => item.id === skuId);
   if (!sku) return;
   if (!state.keywords.size) {
-    showToast('请先添加关键词', true);
-    return;
+    if (!options.silent) {
+      showToast('请先添加关键词', true);
+    }
+    return false;
   }
   const usedKeywordIds = new Set(sku.titleKeywords || []);
   const pools = {
@@ -1307,8 +1309,10 @@ function generateSearchTerms(spuId, skuId) {
   }
   const availableCount = Object.values(pools).reduce((total, list) => total + list.length, 0);
   if (!availableCount) {
-    showToast('暂无可用于该 SKU 的剩余关键词', true);
-    return;
+    if (!options.silent) {
+      showToast('暂无可用于该 SKU 的剩余关键词', true);
+    }
+    return false;
   }
 
   const selectors = {};
@@ -1320,7 +1324,7 @@ function generateSearchTerms(spuId, skuId) {
 
   const pattern = SEARCH_TYPE_PATTERN.length ? SEARCH_TYPE_PATTERN : Object.keys(selectors);
   const words = [];
-  const limit = getSearchLimit(sku);
+  const limit = getSearchLimit();
   let patternIndex = 0;
   let idleSteps = 0;
   const maxIdle = Math.max(pattern.length * 3, 12);
@@ -1354,8 +1358,10 @@ function generateSearchTerms(spuId, skuId) {
   }
 
   if (!words.length) {
-    showToast('未能在字符限制内生成搜索词，请调整限制或关键词', true);
-    return;
+    if (!options.silent) {
+      showToast('未能在字符限制内生成搜索词，请调整限制或关键词', true);
+    }
+    return false;
   }
 
   if (hasRemainingPool()) {
@@ -1376,8 +1382,13 @@ function generateSearchTerms(spuId, skuId) {
   }
 
   sku.searchTerms = words.join(' ');
-  renderSpu(spuId);
-  showToast('已生成搜索词，可继续调整或导出');
+  if (!options.skipRender) {
+    renderSpu(spuId);
+  }
+  if (!options.silent) {
+    showToast('已生成搜索词，可继续调整或导出');
+  }
+  return true;
 }
 
 async function generateFivePoints(spuId) {
@@ -1549,22 +1560,30 @@ function renderPreview() {
 
   const hasAiText = Boolean(state.preview.aiItems?.length || state.preview.aiRaw);
   if (previewAiBlock) {
-    previewAiBlock.hidden = !hasAiText;
+    const shouldShow = hasItems;
+    previewAiBlock.hidden = !shouldShow;
+    if (previewAiEmptyHint) {
+      previewAiEmptyHint.hidden = hasAiText;
+    }
     if (hasAiText && previewAiText) {
       const text = state.preview.aiItems?.length
         ? formatPreviewItems(state.preview.aiItems)
         : state.preview.aiRaw;
       previewAiText.textContent = text;
+      previewAiText.hidden = false;
     } else if (previewAiText) {
       previewAiText.textContent = '';
+      previewAiText.hidden = true;
     }
   }
 
   const freqVisible = Array.isArray(state.preview.frequencies) && state.preview.frequencies.length > 0;
+  const showFrequencyBlock = hasItems || freqVisible;
   if (previewFrequencyBlock) {
-    previewFrequencyBlock.hidden = !freqVisible;
-    if (freqVisible && previewFrequencyList) {
-      previewFrequencyList.innerHTML = '';
+    previewFrequencyBlock.hidden = !showFrequencyBlock;
+    if (!previewFrequencyList) return;
+    previewFrequencyList.innerHTML = '';
+    if (freqVisible) {
       const fragment = document.createDocumentFragment();
       for (const entry of state.preview.frequencies) {
         const row = document.createElement('div');
@@ -1579,8 +1598,11 @@ function renderPreview() {
         fragment.appendChild(row);
       }
       previewFrequencyList.appendChild(fragment);
-    } else if (previewFrequencyList) {
-      previewFrequencyList.innerHTML = '';
+    } else if (showFrequencyBlock) {
+      const empty = document.createElement('p');
+      empty.className = 'hint';
+      empty.textContent = '暂无统计结果，请点击“生成词频统计”。';
+      previewFrequencyList.appendChild(empty);
     }
   }
 }
@@ -1768,6 +1790,38 @@ function exportSubtitle(spuId) {
   });
 }
 
+function generateAllSearchTerms(spuId) {
+  const spu = state.spus.get(spuId);
+  if (!spu) return;
+  if (!spu.skus.length) {
+    showToast('暂无 SKU 可生成搜索词', true);
+    return;
+  }
+  if (!state.keywords.size) {
+    showToast('请先添加关键词', true);
+    return;
+  }
+  let success = 0;
+  const failed = [];
+  for (const sku of spu.skus) {
+    const result = generateSearchTerms(spuId, sku.id, { silent: true, skipRender: true });
+    if (result) {
+      success += 1;
+    } else {
+      failed.push(sku.name || sku.id);
+    }
+  }
+  renderSpu(spuId);
+  if (success) {
+    const message = failed.length
+      ? `已生成 ${success} 个搜索词，未生成：${failed.join('、')}`
+      : `已为 ${success} 个 SKU 生成搜索词`;
+    showToast(message, failed.length > 0);
+  } else {
+    showToast('未能为任何 SKU 生成搜索词，请检查关键词或标题', true);
+  }
+}
+
 function exportAllSkuTitles(spuId) {
   const spu = state.spus.get(spuId);
   if (!spu) return;
@@ -1929,14 +1983,6 @@ if (searchLimitInput) {
     const next = clampLimitValue(searchLimitInput.value, previous, { min: 50, max: 400 });
     state.settings.searchTermLimit = next;
     searchLimitInput.value = String(next);
-    for (const spu of state.spus.values()) {
-      for (const sku of spu.skus) {
-        if (!sku.customSearchLimit || sku.searchLimit === previous) {
-          sku.searchLimit = next;
-          sku.customSearchLimit = false;
-        }
-      }
-    }
     document.querySelectorAll('.sku-card').forEach((card) => {
       const skuId = card.dataset.skuId;
       const spuId = card.closest('[data-spu-id]')?.dataset.spuId;
@@ -1944,10 +1990,6 @@ if (searchLimitInput) {
       const spu = state.spus.get(spuId);
       const sku = spu?.skus.find((item) => item.id === skuId);
       if (!sku) return;
-      const limitField = card.querySelector('.search-limit');
-      if (limitField) {
-        limitField.value = String(getSearchLimit(sku));
-      }
       const textarea = card.querySelector('.search-text');
       if (textarea) {
         textarea.value = sku.searchTerms || '';
@@ -2022,6 +2064,7 @@ if (typeColorGrid) {
       state.keywordTypeColors[type] = input.value;
     }
   }
+  renderLibraryTypeLegend();
   typeColorGrid.addEventListener('input', (event) => {
     const target = event.target;
     if (!(target instanceof HTMLInputElement)) return;
@@ -2035,6 +2078,7 @@ if (typeColorGrid) {
     }
     renderKeywordLibrary();
     renderSpuList();
+    renderLibraryTypeLegend();
     if (keywordTypeSelect?.value === keywordType) {
       updateKeywordColorInput(keywordType);
     }
@@ -2057,17 +2101,23 @@ if (previewCopyBtn) {
   });
 }
 
-if (previewCopyAllBtn) {
-  previewCopyAllBtn.addEventListener('click', () => {
-    const items = collectAllPreviewItems();
-    if (!items.length) {
+if (previewExportBtn) {
+  previewExportBtn.addEventListener('click', () => {
+    if (!state.preview.items?.length) {
+      const items = collectAllPreviewItems();
+      if (!items.length) {
+        showToast('暂无可导出的内容', true);
+        return;
+      }
+      setPreviewItems(items);
+    }
+    const payload = getPreviewCopyPayload();
+    if (!payload) {
       showToast('暂无可导出的内容', true);
       return;
     }
-    setPreviewItems(items);
-    const payload = formatPreviewItems(items);
     navigator.clipboard?.writeText(payload).then(() => {
-      showToast('已复制全部标题与搜索词');
+      showToast('导出结果已复制');
     }).catch(() => {
       showToast('复制失败，请手动复制', true);
       alert(payload);
@@ -2094,6 +2144,7 @@ if (previewAiResetBtn) {
 initAccessGate();
 renderPreview();
 updateKeywordColorInput();
+renderLibraryTypeLegend();
 renderPendingKeywords();
 renderKeywordLibrary();
 renderSpuList();
