@@ -2271,7 +2271,6 @@ function pickKeywordForSlot(type, pools, context) {
     wordCounts,
     colorText,
     colorKeywordIds,
-    trailingKeywords,
     limit,
     isSubtitle,
     avoidRootsWith = [],
@@ -2283,25 +2282,40 @@ function pickKeywordForSlot(type, pools, context) {
   }
 
   const sorted = sortPoolByUsage(pool, usage);
-  for (const keyword of sorted) {
-    if (!keyword) continue;
-    if (usedIds.has(keyword.id)) continue;
-    if (!isSubtitle && colorText && keywordConflictsWithColor(keyword, colorText)) continue;
-    if (avoidRootsWith.length && keywordSharesRootWithList(keyword, avoidRootsWith)) continue;
-    if (
-      selectedWords.length &&
-      keywordsCauseBoundaryDuplicate(selectedWords[selectedWords.length - 1], keyword)
-    ) {
-      continue;
+  const strategies = [
+    { allowRootConflict: false, allowBoundaryRepeat: false },
+    { allowRootConflict: true, allowBoundaryRepeat: false },
+    { allowRootConflict: true, allowBoundaryRepeat: true },
+  ];
+
+  for (const strategy of strategies) {
+    for (const keyword of sorted) {
+      if (!keyword) continue;
+      if (usedIds.has(keyword.id)) continue;
+      if (!isSubtitle && colorText && keywordConflictsWithColor(keyword, colorText)) continue;
+      if (
+        !strategy.allowRootConflict &&
+        avoidRootsWith.length &&
+        keywordSharesRootWithList(keyword, avoidRootsWith)
+      ) {
+        continue;
+      }
+      if (
+        !strategy.allowBoundaryRepeat &&
+        selectedWords.length &&
+        keywordsCauseBoundaryDuplicate(selectedWords[selectedWords.length - 1], keyword)
+      ) {
+        continue;
+      }
+      if (keywordWouldExceedWordLimit(keyword, wordCounts, WORD_REPEAT_LIMIT)) continue;
+      const prospectiveIds = selectedIds.concat(keyword.id);
+      const prospectiveLength = computeTitleCandidateLength(prospectiveIds, {
+        isSubtitle,
+        colorKeywordIds,
+      });
+      if (prospectiveLength > limit) continue;
+      return keyword;
     }
-    if (keywordWouldExceedWordLimit(keyword, wordCounts, WORD_REPEAT_LIMIT)) continue;
-    const prospectiveIds = selectedIds.concat(keyword.id);
-    const prospectiveLength = computeTitleCandidateLength(prospectiveIds, {
-      isSubtitle,
-      colorKeywordIds,
-    });
-    if (prospectiveLength > limit) continue;
-    return keyword;
   }
 
   return null;
