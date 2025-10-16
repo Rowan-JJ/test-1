@@ -1078,8 +1078,12 @@ button.text.danger:hover {
   min-width: 140px;
 }
 
-.preview-actions button {
-  min-width: 120px;
+.preview-actions button,
+.preview-ai-actions button,
+.preview-frequency-actions button {
+  min-width: 118px;
+  padding: 8px 12px;
+  font-size: 0.82rem;
 }
 
 @media (max-width: 1100px) {

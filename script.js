@@ -48,6 +48,29 @@ const COLOR_CODE_MAP = {
 const KNOWN_SIZE_CODES = ['XS', 'S', 'M', 'L', 'XL', 'XXL', '3XL'];
 const SIZE_CODE_SET = new Set(KNOWN_SIZE_CODES);
 
+const COLOR_KEY_ALIASES = {
+  red: ['red', 'scarlet', 'crimson'],
+  black: ['black', 'jet'],
+  green: ['green', 'emerald'],
+  pink: ['pink', 'rose'],
+  brown: ['brown', 'chocolate'],
+  white: ['white'],
+  'leopard print': ['leopard print', 'leopard'],
+};
+
+const COLOR_LABEL_TO_KEY = Object.entries(COLOR_KEY_ALIASES).reduce((map, [key, aliases]) => {
+  for (const alias of aliases) {
+    map.set(alias, key);
+  }
+  return map;
+}, new Map());
+
+const WORD_REPEAT_LIMIT = 2;
+
+const BANNED_AMAZON_WORDS = new Set(['best', 'sexy', 'deal', 'sell', 'cheapest', 'free']);
+const BRAND_WHITELIST = new Set(['popilush']);
+const BRAND_BLACKLIST = new Set(['oeak', 'spanx', 'skims', 'shapermint', 'yummie', 'hanes', 'maidenform']);
+
 const SEARCH_TYPE_PERCENTAGES = {
   core: 0.2,
   feature: 0.2,
@@ -127,6 +150,115 @@ function parseSkuComponents(raw) {
   }
 
   return { colorCode, featureCode, sizeCode, segments };
+}
+
+function getCanonicalColorKey(text) {
+  if (!text) return null;
+  const lower = text.toLowerCase().trim();
+  if (!lower) return null;
+  if (COLOR_LABEL_TO_KEY.has(lower)) {
+    return COLOR_LABEL_TO_KEY.get(lower);
+  }
+  for (const [key, aliases] of Object.entries(COLOR_KEY_ALIASES)) {
+    if (aliases.some((alias) => lower.includes(alias))) {
+      return key;
+    }
+  }
+  return lower;
+}
+
+function detectColorMentions(text) {
+  const mentions = new Set();
+  if (!text) return mentions;
+  const lower = text.toLowerCase();
+  for (const [key, aliases] of Object.entries(COLOR_KEY_ALIASES)) {
+    for (const alias of aliases) {
+      const pattern = new RegExp(`\\b${alias.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&')}\\b`, 'i');
+      if (pattern.test(lower)) {
+        mentions.add(key);
+        break;
+      }
+    }
+  }
+  return mentions;
+}
+
+function keywordConflictsWithColor(keyword, colorText) {
+  if (!keyword || !colorText) return false;
+  const mentions = detectColorMentions(keyword.text);
+  if (!mentions.size) {
+    return false;
+  }
+  const targetKey = getCanonicalColorKey(colorText);
+  if (!targetKey) {
+    return false;
+  }
+  for (const mention of mentions) {
+    if (mention !== targetKey) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function normalizeWordToken(word) {
+  return (word || '')
+    .toString()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '')
+    .trim();
+}
+
+function getKeywordWordTokens(keyword) {
+  if (!keyword) return [];
+  const text = keyword.text || '';
+  return text
+    .split(/\s+/)
+    .map((part) => normalizeWordToken(part))
+    .filter(Boolean);
+}
+
+function exceedsWordLimitForKeywords(keywords, trailingKeywords = [], limit = WORD_REPEAT_LIMIT) {
+  const counts = new Map();
+  const addKeyword = (keyword) => {
+    for (const token of getKeywordWordTokens(keyword)) {
+      const next = (counts.get(token) || 0) + 1;
+      if (next > limit) {
+        return true;
+      }
+      counts.set(token, next);
+    }
+    return false;
+  };
+  for (const keyword of keywords || []) {
+    if (addKeyword(keyword)) {
+      return true;
+    }
+  }
+  for (const keyword of trailingKeywords || []) {
+    if (addKeyword(keyword)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function keywordWouldExceedWordLimit(keyword, counts, limit = WORD_REPEAT_LIMIT) {
+  if (!keyword) return false;
+  for (const token of getKeywordWordTokens(keyword)) {
+    if ((counts.get(token) || 0) >= limit) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function applyKeywordWordCount(keyword, counts) {
+  if (!keyword) return counts;
+  for (const token of getKeywordWordTokens(keyword)) {
+    counts.set(token, (counts.get(token) || 0) + 1);
+  }
+  return counts;
 }
 
 function extractKeywordTokens(text) {
@@ -271,6 +403,45 @@ function transformTitleText(text) {
 
 function transformSearchText(text) {
   return (text || '').toLowerCase();
+}
+
+function reviewEntryText(text, { kind }) {
+  const words = (text || '').split(/\s+/).filter(Boolean);
+  if (!words.length) {
+    return kind === 'search' ? transformSearchText('') : transformTitleText('');
+  }
+  const normalized = words.map((word) => normalizeWordToken(word));
+  const counts = new Map();
+  for (const token of normalized) {
+    if (!token) continue;
+    counts.set(token, (counts.get(token) || 0) + 1);
+  }
+  const remove = new Array(words.length).fill(false);
+  for (let index = words.length - 1; index >= 0; index -= 1) {
+    const token = normalized[index];
+    if (!token) continue;
+    let current = counts.get(token) || 0;
+    if (BRAND_BLACKLIST.has(token) && !BRAND_WHITELIST.has(token)) {
+      remove[index] = true;
+      counts.set(token, current - 1);
+      continue;
+    }
+    if (BANNED_AMAZON_WORDS.has(token)) {
+      remove[index] = true;
+      counts.set(token, current - 1);
+      continue;
+    }
+    if (current > WORD_REPEAT_LIMIT) {
+      remove[index] = true;
+      counts.set(token, current - 1);
+    }
+  }
+  const filteredWords = words.filter((_, index) => !remove[index]);
+  const result = filteredWords.join(' ').trim();
+  if (kind === 'search') {
+    return transformSearchText(result);
+  }
+  return transformTitleText(result);
 }
 
 function getTotalSkuCount() {
@@ -531,28 +702,48 @@ async function requestSkuColorSizeViaAI(rawSku, context = {}) {
   }
 }
 
-async function ensureColorSizeKeywordForSku(sku) {
+async function ensureColorSizeKeywordsForSku(sku) {
   const resolved = await ensureSkuColorSize(sku);
   if (!resolved) return null;
   const { color, size } = resolved;
   if (!color || !size) return null;
-  const id = `__color_${sanitizeKeywordIdSegment(color)}__size_${sanitizeKeywordIdSegment(size)}`;
-  const text = `Color ${color} Size ${size}`;
-  const keywordData = {
-    id,
-    text,
+
+  const featureColor = state.keywordTypeColors.feature || DEFAULT_TYPE_COLORS.feature;
+  const colorId = `__color_${sanitizeKeywordIdSegment(color)}`;
+  const sizeId = `__size_${sanitizeKeywordIdSegment(size)}`;
+
+  const colorKeyword = {
+    id: colorId,
+    text: `Color ${color}`,
     type: 'feature',
-    color: state.keywordTypeColors.feature || DEFAULT_TYPE_COLORS.feature,
+    color: featureColor,
     virtual: true,
     heatValue: Number.NEGATIVE_INFINITY,
   };
-  const existing = state.keywords.get(id);
-  if (existing) {
-    Object.assign(existing, keywordData);
-    return existing;
-  }
-  state.keywords.set(id, keywordData);
-  return keywordData;
+
+  const sizeKeyword = {
+    id: sizeId,
+    text: `Size ${size}`,
+    type: 'feature',
+    color: featureColor,
+    virtual: true,
+    heatValue: Number.NEGATIVE_INFINITY,
+  };
+
+  const ensureKeyword = (keyword) => {
+    const existing = state.keywords.get(keyword.id);
+    if (existing) {
+      Object.assign(existing, keyword);
+      return existing;
+    }
+    state.keywords.set(keyword.id, keyword);
+    return keyword;
+  };
+
+  return {
+    color: ensureKeyword(colorKeyword),
+    size: ensureKeyword(sizeKeyword),
+  };
 }
 
 let keywordCounter = 0;
@@ -1133,8 +1324,8 @@ function buildTextFromKeywordIds(keywordIds) {
     .join(' ');
 }
 
-function computeTitleCandidateLength(ids, { isSubtitle, colorKeywordId } = {}) {
-  const trailingIds = !isSubtitle && colorKeywordId ? [colorKeywordId] : [];
+function computeTitleCandidateLength(ids, { isSubtitle, colorKeywordIds } = {}) {
+  const trailingIds = !isSubtitle && Array.isArray(colorKeywordIds) ? colorKeywordIds : [];
   const finalIds = trailingIds.length ? ids.concat(trailingIds) : ids;
   return buildTextFromKeywordIds(finalIds).length;
 }
@@ -2044,10 +2235,18 @@ function bindSpuEvents(card, spuId) {
 }
 
 function expandTitleCombination(
-  { ids, words, remainingFeatures, remainingScenes, limit, isSubtitle, colorKeywordId },
+  { ids, words, remainingFeatures, remainingScenes, limit, isSubtitle, colorKeywordIds },
   enforcement = {},
+  context = {},
 ) {
   const { enforceEdges = false, enforceRoots = false } = enforcement || {};
+  const {
+    trailingKeywords = [],
+    colorText = '',
+    wordLimit = WORD_REPEAT_LIMIT,
+    brandKeyword = FIXED_KEYWORDS.brand,
+  } = context || {};
+
   const featurePool = (remainingFeatures || []).slice();
   const scenePool = (remainingScenes || []).slice();
   const usedIds = new Set(ids);
@@ -2058,21 +2257,35 @@ function expandTitleCombination(
     return Number.isFinite(value) ? value : -1000;
   };
   let currentHeat = currentWords.reduce((total, keyword) => total + heatOf(keyword), 0);
-  let currentLength = computeTitleCandidateLength(currentIds, { isSubtitle, colorKeywordId });
+  let currentLength = computeTitleCandidateLength(currentIds, {
+    isSubtitle,
+    colorKeywordIds,
+  });
 
   const evaluateList = (list, type) => {
     let best = null;
     for (let index = 0; index < list.length; index += 1) {
       const keyword = list[index];
       if (!keyword || usedIds.has(keyword.id)) continue;
+      if (!isSubtitle && colorText && keywordConflictsWithColor(keyword, colorText)) continue;
       if (
         (enforceEdges || enforceRoots) &&
         !canAppendKeyword(currentWords, keyword, { enforceEdges, enforceRoots })
       ) {
         continue;
       }
+      const prospectiveWords = currentWords.concat(keyword);
+      if (
+        wordLimit &&
+        exceedsWordLimitForKeywords([brandKeyword, ...prospectiveWords], trailingKeywords, wordLimit)
+      ) {
+        continue;
+      }
       const nextIds = currentIds.concat(keyword.id);
-      const nextLength = computeTitleCandidateLength(nextIds, { isSubtitle, colorKeywordId });
+      const nextLength = computeTitleCandidateLength(nextIds, {
+        isSubtitle,
+        colorKeywordIds,
+      });
       if (nextLength > limit) continue;
       const nextHeat = currentHeat + heatOf(keyword);
       if (
@@ -2143,7 +2356,10 @@ function selectKeywordsForTarget(options) {
   return null;
 }
 
-function selectKeywordsForTargetInternal({ pools, usage, limit, isSubtitle, colorKeywordId }, enforcement = {}) {
+function selectKeywordsForTargetInternal(
+  { pools, usage, limit, isSubtitle, colorKeywords, colorText },
+  enforcement = {},
+) {
   const MAX_CORE_CANDIDATES = 6;
   const MAX_FEATURE_CANDIDATES = 10;
   const MAX_SCENE_CANDIDATES = 8;
@@ -2151,10 +2367,10 @@ function selectKeywordsForTargetInternal({ pools, usage, limit, isSubtitle, colo
   const { enforceEdges = false, enforceRoots = false } = enforcement || {};
 
   const comparator = (a, b) => {
-    const usageDiff = (usage.get(a.id) || 0) - (usage.get(b.id) || 0);
-    if (usageDiff !== 0) return usageDiff;
     const heatDiff = getKeywordHeatValue(b) - getKeywordHeatValue(a);
     if (heatDiff !== 0) return heatDiff;
+    const usageDiff = (usage.get(a.id) || 0) - (usage.get(b.id) || 0);
+    if (usageDiff !== 0) return usageDiff;
     return a.text.localeCompare(b.text, 'zh-Hans-CN');
   };
 
@@ -2167,21 +2383,29 @@ function selectKeywordsForTargetInternal({ pools, usage, limit, isSubtitle, colo
   }
 
   const brandId = FIXED_KEYWORDS.brand.id;
+  const brandKeyword = state.keywords.get(brandId) || FIXED_KEYWORDS.brand;
+  const trailingKeywords = !isSubtitle && Array.isArray(colorKeywords) ? colorKeywords : [];
+  const colorKeywordIds = trailingKeywords.map((keyword) => keyword.id);
+  const colorContext = colorText || '';
   let best = null;
 
   for (let i = 0; i < coreList.length; i += 1) {
     const coreA = coreList[i];
+    if (!isSubtitle && colorContext && keywordConflictsWithColor(coreA, colorContext)) continue;
     for (let j = 0; j < coreList.length; j += 1) {
       if (j === i) continue;
       const coreB = coreList[j];
       if (keywordsShareCoreRoot(coreA, coreB)) continue;
+      if (!isSubtitle && colorContext && keywordConflictsWithColor(coreB, colorContext)) continue;
       for (let f1 = 0; f1 < featureList.length; f1 += 1) {
         const feature1 = featureList[f1];
+        if (!isSubtitle && colorContext && keywordConflictsWithColor(feature1, colorContext)) continue;
         if (enforceRoots && keywordSharesRootWithList(feature1, [coreA])) continue;
         const featurePoolAfterF1 = featureList.filter((_, index) => index !== f1);
         if (!featurePoolAfterF1.length) continue;
         for (let f2 = 0; f2 < featurePoolAfterF1.length; f2 += 1) {
           const feature2 = featurePoolAfterF1[f2];
+          if (!isSubtitle && colorContext && keywordConflictsWithColor(feature2, colorContext)) continue;
           if (enforceRoots && keywordSharesRootWithList(feature2, [coreA, coreB, feature1])) continue;
           const baseIds = [brandId, coreA.id, feature1.id, coreB.id, feature2.id];
           const baseWords = [coreA, feature1, coreB, feature2];
@@ -2190,12 +2414,21 @@ function selectKeywordsForTargetInternal({ pools, usage, limit, isSubtitle, colo
           const remainingFeatures = featurePoolAfterF1.filter((_, index) => index !== f2);
           for (let s = 0; s < sceneList.length; s += 1) {
             const scene1 = sceneList[s];
+            if (!isSubtitle && colorContext && keywordConflictsWithColor(scene1, colorContext)) continue;
             if (enforceRoots && keywordSharesRootWithList(scene1, baseWords)) continue;
             const ids = baseIds.concat(scene1.id);
             const words = baseWords.concat(scene1);
             if (enforceEdges && hasEdgeDuplicates(words)) continue;
             if (enforceRoots && hasRootOverlap(words)) continue;
-            const baseLength = computeTitleCandidateLength(ids, { isSubtitle, colorKeywordId });
+            if (
+              exceedsWordLimitForKeywords([brandKeyword, ...words], trailingKeywords, WORD_REPEAT_LIMIT)
+            ) {
+              continue;
+            }
+            const baseLength = computeTitleCandidateLength(ids, {
+              isSubtitle,
+              colorKeywordIds,
+            });
             if (baseLength > limit) continue;
             const remainingScenes = sceneList.filter((_, index) => index !== s);
             const expanded = expandTitleCombination(
@@ -2206,14 +2439,29 @@ function selectKeywordsForTargetInternal({ pools, usage, limit, isSubtitle, colo
                 remainingScenes,
                 limit,
                 isSubtitle,
-                colorKeywordId,
+                colorKeywordIds,
               },
               enforcement,
+              {
+                trailingKeywords,
+                colorText: colorContext,
+                wordLimit: WORD_REPEAT_LIMIT,
+                brandKeyword,
+              },
             );
             if (!expanded) continue;
             const candidateWords = expanded.words.slice();
             if (enforceEdges && hasEdgeDuplicates(candidateWords)) continue;
             if (enforceRoots && hasRootOverlap(candidateWords)) continue;
+            if (
+              exceedsWordLimitForKeywords(
+                [brandKeyword, ...candidateWords],
+                trailingKeywords,
+                WORD_REPEAT_LIMIT,
+              )
+            ) {
+              continue;
+            }
             if (
               !best ||
               expanded.length > best.length ||
@@ -2228,8 +2476,13 @@ function selectKeywordsForTargetInternal({ pools, usage, limit, isSubtitle, colo
   }
 
   if (!best) return null;
-  const finalLength = computeTitleCandidateLength(best.ids, { isSubtitle, colorKeywordId });
-  const finalIds = !isSubtitle && colorKeywordId ? best.ids.concat(colorKeywordId) : best.ids.slice();
+  const finalLength = computeTitleCandidateLength(best.ids, {
+    isSubtitle,
+    colorKeywordIds,
+  });
+  const finalIds = !isSubtitle && colorKeywordIds.length
+    ? best.ids.concat(colorKeywordIds)
+    : best.ids.slice();
   return { ids: finalIds, words: best.words.slice(), length: finalLength, heat: best.heat };
 }
 
@@ -2283,14 +2536,16 @@ async function autoGenerateTitles(spuId) {
   for (const target of targets) {
     const isSubtitle = target.type === 'subtitle';
     const limit = getCharacterLimit(isSubtitle ? 'subtitle' : 'sku');
-    let colorKeywordId = null;
+    let colorKeywords = [];
+    let colorText = '';
     if (!isSubtitle) {
-      const colorKeyword = await ensureColorSizeKeywordForSku(target.sku);
-      if (!colorKeyword) {
+      const ensured = await ensureColorSizeKeywordsForSku(target.sku);
+      if (!ensured) {
         showToast(`请补充 SKU ${target.sku?.name || ''} 的颜色或尺码信息`, true);
         return;
       }
-      colorKeywordId = colorKeyword.id;
+      colorKeywords = [ensured.color, ensured.size].filter(Boolean);
+      colorText = target.sku?.colorText || '';
     }
 
     const combination = selectKeywordsForTarget({
@@ -2298,7 +2553,8 @@ async function autoGenerateTitles(spuId) {
       usage,
       limit,
       isSubtitle,
-      colorKeywordId,
+      colorKeywords,
+      colorText,
     });
 
     if (!combination) {
@@ -2320,7 +2576,7 @@ async function autoGenerateTitles(spuId) {
   showToast('已根据公式生成标题，可继续调整顺序');
 }
 
-function generateSearchTerms(spuId, skuId, options = {}) {
+async function generateSearchTerms(spuId, skuId, options = {}) {
   const spu = state.spus.get(spuId);
   if (!spu) return;
   const sku = spu.skus.find((item) => item.id === skuId);
@@ -2335,6 +2591,18 @@ function generateSearchTerms(spuId, skuId, options = {}) {
     sku.searchKeywords = [];
   }
 
+  if (!sku.colorText || !sku.sizeText) {
+    const ensured = await ensureSkuColorSize(sku);
+    if (!ensured) {
+      if (!options.silent) {
+        showToast('请先识别 SKU 的颜色与尺码信息', true);
+      }
+      return false;
+    }
+  }
+
+  const colorText = sku.colorText || '';
+
   const usedKeywordIds = new Set(sku.titleKeywords || []);
   const pools = {};
   for (const { value } of KEYWORD_TYPES) {
@@ -2344,6 +2612,7 @@ function generateSearchTerms(spuId, skuId, options = {}) {
     if (keyword.virtual) continue;
     const type = KEYWORD_TYPES.some((item) => item.value === keyword.type) ? keyword.type : 'core';
     if (usedKeywordIds.has(keyword.id)) continue;
+    if (colorText && keywordConflictsWithColor(keyword, colorText)) continue;
     if (!pools[type]) pools[type] = [];
     pools[type].push(keyword);
   }
@@ -2359,10 +2628,10 @@ function generateSearchTerms(spuId, skuId, options = {}) {
   const usage = computeSpuKeywordUsage(spu, { excludeSearchSkuId: sku.id });
 
   const comparator = (a, b) => {
-    const usageDiff = (usage.get(a.id) || 0) - (usage.get(b.id) || 0);
-    if (usageDiff !== 0) return usageDiff;
     const heatDiff = getKeywordHeatValue(b) - getKeywordHeatValue(a);
     if (heatDiff !== 0) return heatDiff;
+    const usageDiff = (usage.get(a.id) || 0) - (usage.get(b.id) || 0);
+    if (usageDiff !== 0) return usageDiff;
     return a.text.localeCompare(b.text, 'zh-Hans-CN');
   };
 
@@ -2370,9 +2639,12 @@ function generateSearchTerms(spuId, skuId, options = {}) {
   const selected = [];
   const selectedKeywords = [];
   const selectedSet = new Set();
+  const wordCounts = new Map();
 
   const tryAddKeyword = (keyword, { allowEdgeRepeat = false } = {}) => {
     if (!keyword || selectedSet.has(keyword.id)) return false;
+    if (colorText && keywordConflictsWithColor(keyword, colorText)) return false;
+    if (keywordWouldExceedWordLimit(keyword, wordCounts, WORD_REPEAT_LIMIT)) return false;
     if (!allowEdgeRepeat && selectedKeywords.length) {
       const lastKeyword = selectedKeywords[selectedKeywords.length - 1];
       if (keywordsCauseBoundaryDuplicate(lastKeyword, keyword)) {
@@ -2386,6 +2658,7 @@ function generateSearchTerms(spuId, skuId, options = {}) {
     selectedKeywords.push(keyword);
     selectedSet.add(keyword.id);
     incrementUsage(usage, keyword.id);
+    applyKeywordWordCount(keyword, wordCounts);
     return true;
   };
 
@@ -2921,7 +3194,7 @@ function clearPreviewAi(kind) {
   renderPreview();
 }
 
-async function adjustPreviewWithAI(kind) {
+function adjustPreviewWithAI(kind) {
   const bucket = getPreviewBucket(kind);
   if (!bucket) return;
   const items = bucket.aiItems?.length ? bucket.aiItems : bucket.items;
@@ -2929,80 +3202,27 @@ async function adjustPreviewWithAI(kind) {
     showToast('请先在上方批量导出内容', true);
     return;
   }
-  const apiKey = apiKeyInput.value.trim();
-  if (!apiKey) {
-    showToast('请先输入有效的 DeepSeek API Key', true);
-    return;
-  }
   const elements = kind === 'titles' ? titlePreviewElements : searchPreviewElements;
   const triggerBtn = elements.aiBtn;
   if (!triggerBtn) return;
   triggerBtn.disabled = true;
   const originalText = triggerBtn.textContent;
-  triggerBtn.textContent = '调整中...';
+  triggerBtn.textContent = '审查中...';
   try {
-    const listText = items
-      .map((item, index) => `${index + 1}. ${item.label}: ${item.text}`)
-      .join('\n');
-    const response = await fetch('https://api.deepseek.com/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model: 'deepseek-chat',
-        messages: [
-          {
-            role: 'system',
-            content:
-              'You are an Amazon listing editor. For each entry (title or search term list), remove duplicate words caused by concatenating keyword blocks while preserving meaning, language, and approximate length. Maintain the entry order and respond using the format "n. Label: Text".',
-          },
-          {
-            role: 'user',
-            content: `Here are the entries:\n${listText}\n\nEnsure a word does not repeat within the same entry (e.g., "black bodysuit bodysuit for women" should become "black bodysuit for women"). For search term lists, keep words unique while retaining important phrases. If an entry needs no change, repeat it exactly.`,
-          },
-        ],
-        temperature: 0.4,
-      }),
-    });
-    if (!response.ok) {
-      throw new Error((await response.text()) || '请求失败');
-    }
-    const result = await response.json();
-    const content = result.choices?.[0]?.message?.content?.trim();
-    if (!content) {
-      throw new Error('未获取到有效的返回内容');
-    }
-    const aiItems = items.map((item) => ({ ...item }));
-    let parsed = 0;
-    for (const line of content.split(/\n+/)) {
-      const match = line.match(/^(\d+)\.\s*(.+?):\s*(.+)$/);
-      if (!match) continue;
-      const index = Number(match[1]) - 1;
-      if (!Number.isInteger(index) || index < 0 || index >= aiItems.length) continue;
-      aiItems[index].label = match[2].trim() || aiItems[index].label;
-      aiItems[index].text = match[3].trim();
-      parsed += 1;
-    }
-    if (parsed > 0) {
-      bucket.aiItems = aiItems;
-      bucket.aiRaw = '';
-    } else {
-      bucket.aiItems = [];
-      bucket.aiRaw = content;
-      showToast('AI 返回内容格式异常，已显示原始文本', true);
-    }
+    const processed = items.map((item) => ({
+      ...item,
+      text: reviewEntryText(item.text || '', { kind }),
+    }));
+    bucket.aiItems = processed;
+    bucket.aiRaw = '';
     if (bucket.enableFrequency) {
       bucket.frequencies = null;
     }
     renderPreview();
-    if (parsed > 0) {
-      showToast('AI 已完成内容检查');
-    }
+    showToast('AI 审查已完成');
   } catch (error) {
     console.error(error);
-    showToast(`AI 调整失败：${error.message}`, true);
+    showToast(`AI 审查失败：${error.message}`, true);
   } finally {
     triggerBtn.disabled = false;
     triggerBtn.textContent = originalText;
@@ -3064,7 +3284,7 @@ function exportSubtitle(spuId) {
   });
 }
 
-function generateAllSearchTerms(spuId) {
+async function generateAllSearchTerms(spuId) {
   const spu = state.spus.get(spuId);
   if (!spu) return;
   if (!spu.skus.length) {
@@ -3078,7 +3298,7 @@ function generateAllSearchTerms(spuId) {
   let success = 0;
   const failed = [];
   for (const sku of spu.skus) {
-    const result = generateSearchTerms(spuId, sku.id, { silent: true, skipRender: true });
+    const result = await generateSearchTerms(spuId, sku.id, { silent: true, skipRender: true });
     if (result) {
       success += 1;
     } else {
