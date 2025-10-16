@@ -178,6 +178,11 @@ p {
   background: rgba(224, 49, 49, 0.05);
 }
 
+.pending-bulk-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
 .pending-main {
   display: flex;
   flex-direction: column;
@@ -659,11 +664,7 @@ button.text.danger:hover {
   justify-content: space-between;
   gap: 16px;
   flex-wrap: wrap;
-}
-
-.spu-header p {
-  color: var(--text-secondary);
-  margin-top: 4px;
+  align-items: center;
 }
 
 .spu-actions {
@@ -771,6 +772,20 @@ button.text.danger:hover {
   gap: 6px;
 }
 
+.api-key-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.api-key-controls input {
+  flex: 1;
+}
+
+.api-key-controls button {
+  white-space: nowrap;
+}
+
 .api-key-box input {
   border: 1px dashed var(--border);
   font-family: "Fira Code", monospace;
@@ -802,6 +817,50 @@ button.text.danger:hover {
 .five-point-output pre {
   margin: 0;
   font-family: inherit;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.spu-summary-panel {
+  border: 1px dashed var(--border);
+  border-radius: 12px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  background: rgba(76, 110, 245, 0.05);
+}
+
+.spu-summary-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.spu-summary-list .empty {
+  color: var(--text-secondary);
+}
+
+.spu-summary-item {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: rgba(255, 255, 255, 0.85);
+}
+
+.spu-summary-item strong {
+  font-size: 0.95rem;
+}
+
+.spu-summary-item p {
+  margin: 0;
+  color: var(--text-secondary);
   white-space: pre-wrap;
   word-break: break-word;
 }

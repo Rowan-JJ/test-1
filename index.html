@@ -51,7 +51,16 @@
 
         <div class="api-key-box">
           <label for="api-key">DeepSeek API Key</label>
-          <input id="api-key" type="password" placeholder="请输入 API Key（不会保存在服务器）" />
+          <div class="api-key-controls">
+            <input
+              id="api-key"
+              type="password"
+              value="sk-fae9b9725466489fad43c0589e6841cf"
+              readonly
+            />
+            <button id="api-key-edit" class="secondary" type="button">修改秘钥</button>
+          </div>
+          <p class="hint">默认使用系统提供的 API Key，可根据需要点击修改。</p>
         </div>
 
         <div class="settings-box">
@@ -68,6 +77,14 @@
             <label for="search-limit">搜索词字符上限</label>
             <input id="search-limit" type="number" min="50" max="400" value="250" />
           </div>
+        </div>
+
+        <div class="spu-summary-panel" id="spu-summary-panel">
+          <h3>SPU 列表</h3>
+          <p class="hint">在此查看每个 SPU 的产品信息详情。</p>
+          <ul id="spu-summary-list" class="spu-summary-list">
+            <li class="empty" id="spu-summary-empty">尚未创建 SPU。</li>
+          </ul>
         </div>
       </section>
 
@@ -149,6 +166,11 @@
             <p class="hint">等待分类或分类失败的关键词会显示在这里。</p>
           </div>
           <ul class="pending-keyword-list" id="pending-keyword-list"></ul>
+          <div class="pending-bulk-actions" id="pending-bulk-actions">
+            <button id="pending-retry-all" class="secondary bulk-action" type="button" hidden>
+              重新识别全部失败词
+            </button>
+          </div>
         </div>
       </section>
     </div>
@@ -354,16 +376,11 @@
   <template id="spu-template">
     <div class="spu-card" data-spu-id="">
       <div class="spu-header">
-        <div>
-          <h3 class="spu-name"></h3>
-          <p class="spu-info"></p>
-        </div>
+        <h3 class="spu-name"></h3>
         <div class="spu-actions">
           <button class="secondary add-sku" type="button">新增 SKU</button>
           <button class="secondary auto-generate" type="button">自动生成标题</button>
-          <button class="secondary bulk-action export-all" type="button">批量导出 SKU 标题</button>
           <button class="secondary bulk-action bulk-generate-search" type="button">批量生成搜索词</button>
-          <button class="secondary bulk-action export-search" type="button">批量导出搜索词</button>
           <button class="secondary subtitle-export" type="button">导出父标题</button>
           <button class="text danger delete-spu" type="button">删除 SPU</button>
         </div>

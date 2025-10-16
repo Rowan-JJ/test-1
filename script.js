@@ -33,6 +33,7 @@ const DEFAULT_TYPE_COLORS = {
 const DEFAULT_SKU_TITLE_LIMIT = 200;
 const DEFAULT_SUBTITLE_LIMIT = 125;
 const DEFAULT_SEARCH_TERM_LIMIT = 250;
+const DEFAULT_API_KEY = 'sk-fae9b9725466489fad43c0589e6841cf';
 
 const SEARCH_TYPE_PERCENTAGES = {
   core: 0.2,
@@ -123,6 +124,7 @@ const libraryTypeLegend = document.getElementById('library-type-legend');
 const spuForm = document.getElementById('spu-form');
 const spuContainer = document.getElementById('spu-container');
 const apiKeyInput = document.getElementById('api-key');
+const apiKeyEditBtn = document.getElementById('api-key-edit');
 const skuTitleLimitInput = document.getElementById('sku-title-limit');
 const subtitleLimitInput = document.getElementById('subtitle-limit');
 const searchLimitInput = document.getElementById('search-limit');
@@ -131,6 +133,10 @@ const bulkKeywordSubmit = document.getElementById('bulk-keyword-submit');
 const bulkKeywordClear = document.getElementById('bulk-keyword-clear');
 const pendingKeywordPanel = document.getElementById('pending-keyword-panel');
 const pendingKeywordList = document.getElementById('pending-keyword-list');
+const pendingBulkActions = document.getElementById('pending-bulk-actions');
+const pendingRetryAllBtn = document.getElementById('pending-retry-all');
+const spuSummaryList = document.getElementById('spu-summary-list');
+const spuSummaryEmpty = document.getElementById('spu-summary-empty');
 
 const titlePreviewElements = {
   empty: document.getElementById('title-preview-empty'),
@@ -184,6 +190,7 @@ const spuTemplate = document.getElementById('spu-template');
 const skuTemplate = document.getElementById('sku-template');
 
 ensureFixedKeywords();
+initializeApiKeyField();
 
 function updateNavMetrics() {
   if (!topNav) return;
@@ -307,6 +314,35 @@ function ensureFixedKeywords() {
     if (!state.keywords.has(keyword.id)) {
       state.keywords.set(keyword.id, { ...keyword, heatValue: parseHeatValue(keyword.heat) });
     }
+  }
+}
+
+function initializeApiKeyField() {
+  if (!apiKeyInput) return;
+  const current = (apiKeyInput.value || '').trim();
+  apiKeyInput.value = current || DEFAULT_API_KEY;
+  apiKeyInput.readOnly = true;
+  apiKeyInput.dataset.locked = 'true';
+  if (apiKeyEditBtn) {
+    apiKeyEditBtn.textContent = '修改秘钥';
+    apiKeyEditBtn.addEventListener('click', () => {
+      const locked = apiKeyInput.dataset.locked === 'true';
+      if (locked) {
+        apiKeyInput.dataset.locked = 'false';
+        apiKeyInput.readOnly = false;
+        apiKeyEditBtn.textContent = '完成修改';
+        apiKeyInput.focus();
+        apiKeyInput.select();
+      } else {
+        apiKeyInput.dataset.locked = 'true';
+        apiKeyInput.readOnly = true;
+        apiKeyEditBtn.textContent = '修改秘钥';
+        if (!(apiKeyInput.value || '').trim()) {
+          apiKeyInput.value = DEFAULT_API_KEY;
+        }
+        showToast('API Key 已更新');
+      }
+    });
   }
 }
 
@@ -656,13 +692,6 @@ function validateContainerLength(spuId, containerType, containerId, keywords) {
   return true;
 }
 
-function getInfoSummary(info) {
-  if (!info) return '（产品信息待完善，详见左侧面板）';
-  const compact = info.replace(/\s+/g, ' ').trim();
-  if (!compact) return '（产品信息待完善，详见左侧面板）';
-  return compact.length > 40 ? `${compact.slice(0, 40)}…` : compact;
-}
-
 function clampLimitValue(value, fallback, { min = 20, max = 400 } = {}) {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return fallback;
@@ -699,6 +728,13 @@ function parseBulkKeywordInput(raw) {
 function renderPendingKeywords() {
   if (!pendingKeywordPanel || !pendingKeywordList) return;
   pendingKeywordList.innerHTML = '';
+  if (pendingBulkActions) {
+    pendingBulkActions.hidden = true;
+  }
+  if (pendingRetryAllBtn) {
+    pendingRetryAllBtn.hidden = true;
+    pendingRetryAllBtn.disabled = true;
+  }
   if (!state.pendingKeywords.length) {
     pendingKeywordPanel.hidden = true;
     return;
@@ -761,6 +797,26 @@ function renderPendingKeywords() {
 
     pendingKeywordList.appendChild(li);
   }
+
+  const hasFailures = state.pendingKeywords.some((item) => item.status === 'error');
+  if (pendingBulkActions) {
+    pendingBulkActions.hidden = !hasFailures;
+  }
+  if (pendingRetryAllBtn) {
+    pendingRetryAllBtn.hidden = !hasFailures;
+    pendingRetryAllBtn.disabled = !hasFailures;
+  }
+}
+
+function retryFailedPendingKeywords() {
+  const failed = state.pendingKeywords.filter((item) => item.status === 'error');
+  if (!failed.length) return;
+  for (const item of failed) {
+    item.status = 'waiting';
+    item.errorMessage = '';
+  }
+  renderPendingKeywords();
+  classifyPendingKeywords(failed);
 }
 
 async function classifyPendingKeywords(items) {
@@ -1181,6 +1237,37 @@ function deleteSpu(spuId) {
   renderSpuList();
 }
 
+function renderSpuSummary() {
+  if (!spuSummaryList) return;
+  const existingItems = Array.from(spuSummaryList.querySelectorAll('.spu-summary-item'));
+  for (const item of existingItems) {
+    item.remove();
+  }
+  const hasSpu = state.spus.size > 0;
+  if (spuSummaryEmpty) {
+    spuSummaryEmpty.hidden = hasSpu;
+  }
+  if (!hasSpu) {
+    return;
+  }
+  for (const spu of state.spus.values()) {
+    const li = document.createElement('li');
+    li.className = 'spu-summary-item';
+    const title = document.createElement('strong');
+    title.textContent = spu.name || '未命名 SPU';
+    li.appendChild(title);
+    const info = document.createElement('p');
+    const infoText = (spu.info || '').trim();
+    const display = infoText || '（产品信息待完善，详见左侧面板）';
+    info.textContent = display;
+    if (infoText) {
+      info.title = infoText;
+    }
+    li.appendChild(info);
+    spuSummaryList.appendChild(li);
+  }
+}
+
 function renderSpuList() {
   spuContainer.innerHTML = '';
   if (!state.spus.size) {
@@ -1189,12 +1276,14 @@ function renderSpuList() {
     empty.textContent = '还没有创建任何 SPU，请先在上方添加。';
     spuContainer.appendChild(empty);
     renderFivePointSection();
+    renderSpuSummary();
     return;
   }
   for (const [spuId] of state.spus) {
     renderSpu(spuId, { append: true });
   }
   renderFivePointSection();
+  renderSpuSummary();
 }
 
 function renderSpu(spuId, { append = false } = {}) {
@@ -1217,11 +1306,6 @@ function renderSpu(spuId, { append = false } = {}) {
   }
 
   card.querySelector('.spu-name').textContent = spu.name;
-  const infoEl = card.querySelector('.spu-info');
-  if (infoEl) {
-    infoEl.textContent = getInfoSummary(spu.info);
-    infoEl.title = (spu.info || '').trim();
-  }
   const subtitleDropzone = card.querySelector('.subtitle-dropzone');
   subtitleDropzone.dataset.containerType = 'subtitle';
   subtitleDropzone.dataset.containerId = 'subtitle';
@@ -1258,6 +1342,7 @@ function renderSpu(spuId, { append = false } = {}) {
   }
 
   renderFivePointSection();
+  renderSpuSummary();
 }
 
 function renderFivePointSection() {
@@ -1393,8 +1478,6 @@ function bindSpuEvents(card, spuId) {
   const addSkuBtn = card.querySelector('.add-sku');
   const autoGenerateBtn = card.querySelector('.auto-generate');
   const subtitleExportBtn = card.querySelector('.subtitle-export');
-  const exportAllBtn = card.querySelector('.export-all');
-  const exportSearchBtn = card.querySelector('.export-search');
   const bulkGenerateSearchBtn = card.querySelector('.bulk-generate-search');
   const deleteSpuBtn = card.querySelector('.delete-spu');
   const bulkTextarea = card.querySelector('.bulk-sku-text');
@@ -1439,16 +1522,8 @@ function bindSpuEvents(card, spuId) {
     subtitleExportBtn.onclick = () => exportSubtitle(spuId);
   }
 
-  if (exportAllBtn) {
-    exportAllBtn.onclick = () => exportAllSkuTitles(spuId);
-  }
-
   if (bulkGenerateSearchBtn) {
     bulkGenerateSearchBtn.onclick = () => generateAllSearchTerms(spuId);
-  }
-
-  if (exportSearchBtn) {
-    exportSearchBtn.onclick = () => exportAllSkuSearchTerms(spuId);
   }
 
   deleteSpuBtn.onclick = () => {
@@ -2262,74 +2337,6 @@ function generateAllSearchTerms(spuId) {
   }
 }
 
-function exportAllSkuTitles(spuId) {
-  const spu = state.spus.get(spuId);
-  if (!spu) return;
-  if (!spu.skus.length) {
-    showToast('暂无 SKU 可导出', true);
-    return;
-  }
-  const titles = [];
-  const emptySkus = [];
-  for (const sku of spu.skus) {
-    const title = buildTextFromKeywordIds(sku.titleKeywords);
-    if (title) {
-      titles.push(title);
-    } else {
-      emptySkus.push(sku.name || sku.id);
-    }
-  }
-  if (!titles.length) {
-    alert('所有 SKU 的标题均为空，请先拖入关键词。');
-    return;
-  }
-  setPreviewItems('titles', collectTitlePreviewItems());
-  const payload = titles.join('\n\n');
-  navigator.clipboard?.writeText(payload).then(() => {
-    const message = emptySkus.length
-      ? `已复制所有 SKU 标题（跳过 ${emptySkus.length} 个空标题）`
-      : '已复制所有 SKU 标题';
-    showToast(message, false);
-  }).catch(() => {
-    showToast('复制失败，请手动复制内容', true);
-    alert(payload);
-  });
-}
-
-function exportAllSkuSearchTerms(spuId) {
-  const spu = state.spus.get(spuId);
-  if (!spu) return;
-  if (!spu.skus.length) {
-    showToast('暂无 SKU 可导出', true);
-    return;
-  }
-  const terms = [];
-  const emptySkus = [];
-  for (const sku of spu.skus) {
-    const text = buildTextFromKeywordIds(sku.searchKeywords);
-    if (text) {
-      terms.push(text);
-    } else {
-      emptySkus.push(sku.name || sku.id);
-    }
-  }
-  if (!terms.length) {
-    alert('所有 SKU 的搜索词均为空，请先生成或输入。');
-    return;
-  }
-  setPreviewItems('search', collectSearchPreviewItems());
-  const payload = terms.join('\n\n');
-  navigator.clipboard?.writeText(payload).then(() => {
-    const message = emptySkus.length
-      ? `已复制所有搜索词（跳过 ${emptySkus.length} 个空搜索词）`
-      : '已复制所有搜索词';
-    showToast(message, false);
-  }).catch(() => {
-    showToast('复制失败，请手动复制内容', true);
-    alert(payload);
-  });
-}
-
 keywordForm.addEventListener('submit', (event) => {
   event.preventDefault();
   const formData = new FormData(keywordForm);
@@ -2479,6 +2486,12 @@ if (pendingKeywordList) {
     } else if (action === 'retry') {
       classifyPendingKeywords([item]);
     }
+  });
+}
+
+if (pendingRetryAllBtn) {
+  pendingRetryAllBtn.addEventListener('click', () => {
+    retryFailedPendingKeywords();
   });
 }
 
