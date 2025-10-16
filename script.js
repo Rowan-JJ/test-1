@@ -2247,270 +2247,173 @@ function bindSpuEvents(card, spuId) {
   };
 }
 
-function expandTitleCombination(
-  { ids, words, remainingFeatures, remainingScenes, limit, isSubtitle, colorKeywordIds },
-  enforcement = {},
-  context = {},
-) {
-  const { enforceEdges = false, enforceRoots = false } = enforcement || {};
-  const {
-    trailingKeywords = [],
-    colorText = '',
-    wordLimit = WORD_REPEAT_LIMIT,
-    brandKeyword = FIXED_KEYWORDS.brand,
-  } = context || {};
 
-  const featurePool = (remainingFeatures || []).slice();
-  const scenePool = (remainingScenes || []).slice();
-  const usedIds = new Set(ids);
-  let currentIds = ids.slice();
-  let currentWords = words.slice();
-  const heatOf = (keyword) => {
-    const value = getKeywordHeatValue(keyword);
-    return Number.isFinite(value) ? value : -1000;
-  };
-  let currentHeat = currentWords.reduce((total, keyword) => total + heatOf(keyword), 0);
-  let currentLength = computeTitleCandidateLength(currentIds, {
-    isSubtitle,
-    colorKeywordIds,
-  });
-
-  const evaluateList = (list, type) => {
-    let best = null;
-    for (let index = 0; index < list.length; index += 1) {
-      const keyword = list[index];
-      if (!keyword || usedIds.has(keyword.id)) continue;
-      if (!isSubtitle && colorText && keywordConflictsWithColor(keyword, colorText)) continue;
-      if (
-        (enforceEdges || enforceRoots) &&
-        !canAppendKeyword(currentWords, keyword, { enforceEdges, enforceRoots })
-      ) {
-        continue;
-      }
-      const prospectiveWords = currentWords.concat(keyword);
-      if (
-        wordLimit &&
-        exceedsWordLimitForKeywords([brandKeyword, ...prospectiveWords], trailingKeywords, wordLimit)
-      ) {
-        continue;
-      }
-      const nextIds = currentIds.concat(keyword.id);
-      const nextLength = computeTitleCandidateLength(nextIds, {
-        isSubtitle,
-        colorKeywordIds,
-      });
-      if (nextLength > limit) continue;
-      const nextHeat = currentHeat + heatOf(keyword);
-      if (
-        !best ||
-        nextLength > best.length ||
-        (nextLength === best.length && nextHeat > best.heat)
-      ) {
-        best = { type, index, keyword, ids: nextIds, length: nextLength, heat: nextHeat };
-      }
-    }
-    return best;
-  };
-
-  while (true) {
-    const featureCandidate = evaluateList(featurePool, 'feature');
-    const sceneCandidate = evaluateList(scenePool, 'scene');
-    let bestCandidate = null;
-    if (featureCandidate && sceneCandidate) {
-      if (
-        featureCandidate.length > sceneCandidate.length ||
-        (featureCandidate.length === sceneCandidate.length &&
-          featureCandidate.heat >= sceneCandidate.heat)
-      ) {
-        bestCandidate = featureCandidate;
-      } else {
-        bestCandidate = sceneCandidate;
-      }
-    } else {
-      bestCandidate = featureCandidate || sceneCandidate;
-    }
-
-    if (!bestCandidate) break;
-
-    currentIds = bestCandidate.ids;
-    currentLength = bestCandidate.length;
-    currentHeat = bestCandidate.heat;
-    usedIds.add(bestCandidate.keyword.id);
-    currentWords.push(bestCandidate.keyword);
-
-    if (bestCandidate.type === 'feature') {
-      featurePool.splice(bestCandidate.index, 1);
-    } else {
-      scenePool.splice(bestCandidate.index, 1);
-    }
-  }
-
-  return {
-    ids: currentIds.slice(),
-    words: currentWords.slice(),
-    length: currentLength,
-    heat: currentHeat,
-  };
-}
-
-function selectKeywordsForTarget(options) {
-  const enforcementLevels = [
-    { enforceRoots: true, enforceEdges: true },
-    { enforceRoots: true, enforceEdges: false },
-    { enforceRoots: false, enforceEdges: true },
-    { enforceRoots: false, enforceEdges: false },
-  ];
-  for (const enforcement of enforcementLevels) {
-    const result = selectKeywordsForTargetInternal(options, enforcement);
-    if (result) {
-      return result;
-    }
-  }
-  return null;
-}
-
-function selectKeywordsForTargetInternal(
-  { pools, usage, limit, isSubtitle, colorKeywords, colorText, targetCount = 1 },
-  enforcement = {},
-) {
-  const { enforceEdges = false, enforceRoots = false } = enforcement || {};
-
+function sortPoolByUsage(list, usage) {
+  if (!Array.isArray(list)) return [];
   const usageMap = usage instanceof Map ? usage : new Map();
-  const comparator = (a, b) => {
-    const usageDiff = (usageMap.get(a.id) || 0) - (usageMap.get(b.id) || 0);
-    if (usageDiff !== 0) return usageDiff;
-    const heatDiff = getKeywordHeatValue(b) - getKeywordHeatValue(a);
-    if (heatDiff !== 0) return heatDiff;
-    return a.text.localeCompare(b.text, 'zh-Hans-CN');
-  };
+  return list
+    .slice()
+    .sort((a, b) => {
+      const usageDiff = (usageMap.get(a.id) || 0) - (usageMap.get(b.id) || 0);
+      if (usageDiff !== 0) return usageDiff;
+      const heatDiff = getKeywordHeatValue(b) - getKeywordHeatValue(a);
+      if (heatDiff !== 0) return heatDiff;
+      return a.text.localeCompare(b.text, 'zh-Hans-CN');
+    });
+}
 
-  const spread = Math.max(1, Math.ceil(targetCount || 1));
-  const CORE_MAX = 12;
-  const FEATURE_MAX = 16;
-  const SCENE_MAX = 12;
-  const coreLimit = Math.min(
-    (pools.core || []).length,
-    Math.max(6, Math.min(spread * 2, CORE_MAX)),
-  );
-  const featureLimit = Math.min(
-    (pools.feature || []).length,
-    Math.max(8, Math.min(spread * 3, FEATURE_MAX)),
-  );
-  const sceneLimit = Math.min(
-    (pools.scene || []).length,
-    Math.max(4, Math.min(spread * 2, SCENE_MAX)),
-  );
+function pickKeywordForSlot(type, pools, context) {
+  const {
+    usage,
+    selectedIds,
+    selectedWords,
+    usedIds,
+    wordCounts,
+    colorText,
+    colorKeywordIds,
+    trailingKeywords,
+    limit,
+    isSubtitle,
+    avoidRootsWith = [],
+  } = context;
 
-  const coreList = (pools.core || []).slice().sort(comparator).slice(0, coreLimit);
-  const featureList = (pools.feature || []).slice().sort(comparator).slice(0, featureLimit);
-  const sceneList = (pools.scene || []).slice().sort(comparator).slice(0, sceneLimit);
-
-  if (coreList.length < 2 || featureList.length < 2 || sceneList.length < 1) {
+  const pool = pools[type];
+  if (!Array.isArray(pool) || !pool.length) {
     return null;
   }
 
-  const brandId = FIXED_KEYWORDS.brand.id;
-  const brandKeyword = state.keywords.get(brandId) || FIXED_KEYWORDS.brand;
-  const trailingKeywords = !isSubtitle && Array.isArray(colorKeywords) ? colorKeywords : [];
-  const colorKeywordIds = trailingKeywords.map((keyword) => keyword.id);
-  const colorContext = colorText || '';
-  let best = null;
+  const sorted = sortPoolByUsage(pool, usage);
+  for (const keyword of sorted) {
+    if (!keyword) continue;
+    if (usedIds.has(keyword.id)) continue;
+    if (!isSubtitle && colorText && keywordConflictsWithColor(keyword, colorText)) continue;
+    if (avoidRootsWith.length && keywordSharesRootWithList(keyword, avoidRootsWith)) continue;
+    if (
+      selectedWords.length &&
+      keywordsCauseBoundaryDuplicate(selectedWords[selectedWords.length - 1], keyword)
+    ) {
+      continue;
+    }
+    if (keywordWouldExceedWordLimit(keyword, wordCounts, WORD_REPEAT_LIMIT)) continue;
+    const prospectiveIds = selectedIds.concat(keyword.id);
+    const prospectiveLength = computeTitleCandidateLength(prospectiveIds, {
+      isSubtitle,
+      colorKeywordIds,
+    });
+    if (prospectiveLength > limit) continue;
+    return keyword;
+  }
 
-  for (let i = 0; i < coreList.length; i += 1) {
-    const coreA = coreList[i];
-    if (!isSubtitle && colorContext && keywordConflictsWithColor(coreA, colorContext)) continue;
-    for (let j = 0; j < coreList.length; j += 1) {
-      if (j === i) continue;
-      const coreB = coreList[j];
-      if (keywordsShareCoreRoot(coreA, coreB)) continue;
-      if (!isSubtitle && colorContext && keywordConflictsWithColor(coreB, colorContext)) continue;
-      for (let f1 = 0; f1 < featureList.length; f1 += 1) {
-        const feature1 = featureList[f1];
-        if (!isSubtitle && colorContext && keywordConflictsWithColor(feature1, colorContext)) continue;
-        if (enforceRoots && keywordSharesRootWithList(feature1, [coreA])) continue;
-        const featurePoolAfterF1 = featureList.filter((_, index) => index !== f1);
-        if (!featurePoolAfterF1.length) continue;
-        for (let f2 = 0; f2 < featurePoolAfterF1.length; f2 += 1) {
-          const feature2 = featurePoolAfterF1[f2];
-          if (!isSubtitle && colorContext && keywordConflictsWithColor(feature2, colorContext)) continue;
-          if (enforceRoots && keywordSharesRootWithList(feature2, [coreA, coreB, feature1])) continue;
-          const baseIds = [brandId, coreA.id, feature1.id, coreB.id, feature2.id];
-          const baseWords = [coreA, feature1, coreB, feature2];
-          if (enforceEdges && hasEdgeDuplicates(baseWords)) continue;
-          if (enforceRoots && hasRootOverlap(baseWords)) continue;
-          const remainingFeatures = featurePoolAfterF1.filter((_, index) => index !== f2);
-          for (let s = 0; s < sceneList.length; s += 1) {
-            const scene1 = sceneList[s];
-            if (!isSubtitle && colorContext && keywordConflictsWithColor(scene1, colorContext)) continue;
-            if (enforceRoots && keywordSharesRootWithList(scene1, baseWords)) continue;
-            const ids = baseIds.concat(scene1.id);
-            const words = baseWords.concat(scene1);
-            if (enforceEdges && hasEdgeDuplicates(words)) continue;
-            if (enforceRoots && hasRootOverlap(words)) continue;
-            if (
-              exceedsWordLimitForKeywords([brandKeyword, ...words], trailingKeywords, WORD_REPEAT_LIMIT)
-            ) {
-              continue;
-            }
-            const baseLength = computeTitleCandidateLength(ids, {
-              isSubtitle,
-              colorKeywordIds,
-            });
-            if (baseLength > limit) continue;
-            const remainingScenes = sceneList.filter((_, index) => index !== s);
-            const expanded = expandTitleCombination(
-              {
-                ids,
-                words,
-                remainingFeatures,
-                remainingScenes,
-                limit,
-                isSubtitle,
-                colorKeywordIds,
-              },
-              enforcement,
-              {
-                trailingKeywords,
-                colorText: colorContext,
-                wordLimit: WORD_REPEAT_LIMIT,
-                brandKeyword,
-              },
-            );
-            if (!expanded) continue;
-            const candidateWords = expanded.words.slice();
-            if (enforceEdges && hasEdgeDuplicates(candidateWords)) continue;
-            if (enforceRoots && hasRootOverlap(candidateWords)) continue;
-            if (
-              exceedsWordLimitForKeywords(
-                [brandKeyword, ...candidateWords],
-                trailingKeywords,
-                WORD_REPEAT_LIMIT,
-              )
-            ) {
-              continue;
-            }
-            if (
-              !best ||
-              expanded.length > best.length ||
-              (expanded.length === best.length && expanded.heat > best.heat)
-            ) {
-              best = expanded;
-            }
-          }
-        }
+  return null;
+}
+
+function buildTitleCombination({
+  pools,
+  usage,
+  limit,
+  isSubtitle,
+  colorKeywords,
+  colorKeywordIds,
+  colorText,
+}) {
+  const usageMap = usage instanceof Map ? usage : new Map();
+  const brandKeyword = state.keywords.get(FIXED_KEYWORDS.brand.id) || FIXED_KEYWORDS.brand;
+  const trailingKeywords = Array.isArray(colorKeywords) ? colorKeywords : [];
+  const selectedIds = [brandKeyword.id];
+  const selectedWords = [];
+  const usedIds = new Set(selectedIds);
+  const wordCounts = new Map();
+  applyKeywordWordCount(brandKeyword, wordCounts);
+  for (const trailing of trailingKeywords) {
+    applyKeywordWordCount(trailing, wordCounts);
+  }
+
+  const slotPlan = [
+    { type: 'core' },
+    { type: 'feature' },
+    { type: 'core', avoidPrevIndexes: [0] },
+    { type: 'feature' },
+    { type: 'scene' },
+  ];
+
+  for (const slot of slotPlan) {
+    const avoidRootsWith = Array.isArray(slot.avoidPrevIndexes)
+      ? slot.avoidPrevIndexes.map((index) => selectedWords[index]).filter(Boolean)
+      : [];
+    const keyword = pickKeywordForSlot(slot.type, pools, {
+      usage: usageMap,
+      selectedIds,
+      selectedWords,
+      usedIds,
+      wordCounts,
+      colorText,
+      colorKeywordIds,
+      trailingKeywords,
+      limit,
+      isSubtitle,
+      avoidRootsWith,
+    });
+    if (!keyword) {
+      return null;
+    }
+    selectedWords.push(keyword);
+    selectedIds.push(keyword.id);
+    usedIds.add(keyword.id);
+    applyKeywordWordCount(keyword, wordCounts);
+    incrementUsage(usageMap, keyword.id);
+  }
+
+  const extraOrder = ['feature', 'scene'];
+  let additions = 0;
+  const MAX_EXTRAS = 4;
+  while (additions < MAX_EXTRAS) {
+    let added = false;
+    for (const type of extraOrder) {
+      const keyword = pickKeywordForSlot(type, pools, {
+        usage: usageMap,
+        selectedIds,
+        selectedWords,
+        usedIds,
+        wordCounts,
+        colorText,
+        colorKeywordIds,
+        trailingKeywords,
+        limit,
+        isSubtitle,
+      });
+      if (!keyword) {
+        continue;
       }
+      selectedWords.push(keyword);
+      selectedIds.push(keyword.id);
+      usedIds.add(keyword.id);
+      applyKeywordWordCount(keyword, wordCounts);
+      incrementUsage(usageMap, keyword.id);
+      additions += 1;
+      added = true;
+      break;
+    }
+    if (!added) {
+      break;
     }
   }
 
-  if (!best) return null;
-  const finalLength = computeTitleCandidateLength(best.ids, {
+  const finalLength = computeTitleCandidateLength(selectedIds, {
     isSubtitle,
     colorKeywordIds,
   });
-  const finalIds = !isSubtitle && colorKeywordIds.length
-    ? best.ids.concat(colorKeywordIds)
-    : best.ids.slice();
-  return { ids: finalIds, words: best.words.slice(), length: finalLength, heat: best.heat };
+  if (finalLength > limit) {
+    return null;
+  }
+
+  const heat = selectedWords.reduce((total, keyword) => total + getKeywordHeatValue(keyword), 0);
+  return {
+    ids: selectedIds,
+    words: selectedWords,
+    length: finalLength,
+    heat,
+    usage: usageMap,
+  };
 }
 
 async function autoGenerateTitles(spuId) {
@@ -2559,15 +2462,15 @@ async function autoGenerateTitles(spuId) {
   ];
 
   const assignments = [];
-  const targetCount = targets.length || 1;
   const seenSignatures = new Set();
-  const usagePenalty = Math.max(2, targetCount);
 
   for (const target of targets) {
     const isSubtitle = target.type === 'subtitle';
     const limit = getCharacterLimit(isSubtitle ? 'subtitle' : 'sku');
     let colorKeywords = [];
+    let colorKeywordIds = [];
     let colorText = '';
+
     if (!isSubtitle) {
       const ensured = await ensureColorSizeKeywordsForSku(target.sku);
       if (!ensured) {
@@ -2575,55 +2478,44 @@ async function autoGenerateTitles(spuId) {
         return;
       }
       colorKeywords = [ensured.color, ensured.size].filter(Boolean);
+      colorKeywordIds = colorKeywords.map((item) => item.id);
       colorText = target.sku?.colorText || '';
     }
-    const baseOptions = {
-      pools,
-      limit,
-      isSubtitle,
-      colorKeywords,
-      colorText,
-      targetCount,
-    };
 
-    let attempt = 0;
-    const maxAttempts = 6;
     let combination = null;
     let signature = '';
-    let fallbackCombination = null;
-    let fallbackSignature = '';
-    const attemptUsage = new Map(usage);
+    const MAX_ATTEMPTS = 6;
 
-    while (attempt < maxAttempts) {
-      const candidate = selectKeywordsForTarget({ ...baseOptions, usage: attemptUsage });
+    for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
+      const attemptUsage = new Map(usage);
+      const candidate = buildTitleCombination({
+        pools,
+        usage: attemptUsage,
+        limit,
+        isSubtitle,
+        colorKeywords,
+        colorKeywordIds,
+        colorText,
+      });
       if (!candidate) {
         break;
       }
       const candidateSignature = computeTitleSignature(candidate.ids);
-      const isDuplicate = !isSubtitle && candidateSignature && seenSignatures.has(candidateSignature);
-      if (isDuplicate) {
-        if (
-          !fallbackCombination ||
-          candidate.length > fallbackCombination.length ||
-          (candidate.length === fallbackCombination.length && candidate.heat > fallbackCombination.heat)
-        ) {
-          fallbackCombination = candidate;
-          fallbackSignature = candidateSignature;
-        }
+      if (!isSubtitle && candidateSignature && seenSignatures.has(candidateSignature)) {
         for (const keyword of candidate.words) {
-          incrementUsage(attemptUsage, keyword.id, usagePenalty);
+          incrementUsage(usage, keyword.id, 1);
         }
-        attempt += 1;
         continue;
       }
+
       combination = candidate;
       signature = candidateSignature;
-      break;
-    }
 
-    if (!combination && fallbackCombination) {
-      combination = fallbackCombination;
-      signature = fallbackSignature;
+      usage.clear();
+      for (const [key, value] of attemptUsage.entries()) {
+        usage.set(key, value);
+      }
+      break;
     }
 
     if (!combination) {
@@ -2631,14 +2523,15 @@ async function autoGenerateTitles(spuId) {
       return;
     }
 
-    if (signature) {
+    if (!isSubtitle && signature) {
       seenSignatures.add(signature);
     }
 
-    assignments.push(() => target.apply(combination.ids.slice()));
-    for (const keyword of combination.words) {
-      incrementUsage(usage, keyword.id, usagePenalty);
-    }
+    const finalIds = !isSubtitle && colorKeywordIds.length
+      ? combination.ids.concat(colorKeywordIds)
+      : combination.ids.slice();
+
+    assignments.push(() => target.apply(finalIds));
   }
 
   for (const apply of assignments) {
