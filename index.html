@@ -165,9 +165,38 @@
           <span data-type="scene"><i></i>场景词</span>
           <span data-type="minor"><i></i>小语种词</span>
         </div>
-        <p class="hint">拖动关键词滑块到任意 SKU 的标题框中，或单击复制信息。</p>
+        <p class="hint">拖动关键词滑块到任意 SKU 的标题或搜索词框中，或单击复制信息。</p>
         <div class="keyword-scroll">
-          <div class="keyword-list" id="keyword-list"></div>
+          <div class="keyword-categories" id="keyword-categories">
+            <div class="keyword-category" data-type="core">
+              <div class="category-header">
+                <h4>核心词</h4>
+                <span class="category-count" data-count-type="core"></span>
+              </div>
+              <div class="keyword-list" id="keyword-list-core"></div>
+            </div>
+            <div class="keyword-category" data-type="feature">
+              <div class="category-header">
+                <h4>特征词</h4>
+                <span class="category-count" data-count-type="feature"></span>
+              </div>
+              <div class="keyword-list" id="keyword-list-feature"></div>
+            </div>
+            <div class="keyword-category" data-type="scene">
+              <div class="category-header">
+                <h4>场景词</h4>
+                <span class="category-count" data-count-type="scene"></span>
+              </div>
+              <div class="keyword-list" id="keyword-list-scene"></div>
+            </div>
+            <div class="keyword-category" data-type="minor">
+              <div class="category-header">
+                <h4>小语种词</h4>
+                <span class="category-count" data-count-type="minor"></span>
+              </div>
+              <div class="keyword-list" id="keyword-list-minor"></div>
+            </div>
+          </div>
         </div>
       </div>
     </section>
@@ -186,6 +215,13 @@
           <div class="preview-column-header">
             <h3>标题预览区</h3>
             <div class="preview-actions">
+              <div class="preview-format">
+                <label for="title-preview-format">导出方式</label>
+                <select id="title-preview-format">
+                  <option value="simple">简化（仅文本）</option>
+                  <option value="detailed">完整（含标识）</option>
+                </select>
+              </div>
               <button id="title-preview-export" class="secondary bulk-action" type="button">批量导出标题</button>
               <button id="title-preview-copy" class="secondary" type="button">复制标题</button>
               <button id="title-preview-ai" class="secondary" type="button">AI 审查标题</button>
@@ -202,9 +238,12 @@
           <div class="preview-block" id="title-preview-ai-block" hidden>
             <div class="preview-block-header">
               <h4>AI 审查结果</h4>
-              <div class="preview-ai-actions">
-                <button class="secondary" id="title-preview-export-results" type="button">导出结果</button>
-                <button class="text" id="title-preview-ai-reset" type="button">清除 AI 结果</button>
+              <div class="preview-block-meta">
+                <span class="preview-char-count" id="title-preview-ai-chars"></span>
+                <div class="preview-ai-actions">
+                  <button class="secondary" id="title-preview-export-results" type="button">导出结果</button>
+                  <button class="text" id="title-preview-ai-reset" type="button">清除 AI 结果</button>
+                </div>
               </div>
             </div>
             <p class="hint" id="title-preview-ai-empty">暂无 AI 调整结果，将使用当前内容导出。</p>
@@ -225,6 +264,13 @@
           <div class="preview-column-header">
             <h3>搜索词预览区</h3>
             <div class="preview-actions">
+              <div class="preview-format">
+                <label for="search-preview-format">导出方式</label>
+                <select id="search-preview-format">
+                  <option value="simple">简化（仅文本）</option>
+                  <option value="detailed">完整（含标识）</option>
+                </select>
+              </div>
               <button id="search-preview-export" class="secondary bulk-action" type="button">批量导出搜索词</button>
               <button id="search-preview-copy" class="secondary" type="button">复制搜索词</button>
               <button id="search-preview-ai" class="secondary" type="button">AI 审查搜索词</button>
@@ -241,9 +287,12 @@
           <div class="preview-block" id="search-preview-ai-block" hidden>
             <div class="preview-block-header">
               <h4>AI 审查结果</h4>
-              <div class="preview-ai-actions">
-                <button class="secondary" id="search-preview-export-results" type="button">导出结果</button>
-                <button class="text" id="search-preview-ai-reset" type="button">清除 AI 结果</button>
+              <div class="preview-block-meta">
+                <span class="preview-char-count" id="search-preview-ai-chars"></span>
+                <div class="preview-ai-actions">
+                  <button class="secondary" id="search-preview-export-results" type="button">导出结果</button>
+                  <button class="text" id="search-preview-ai-reset" type="button">清除 AI 结果</button>
+                </div>
               </div>
             </div>
             <p class="hint" id="search-preview-ai-empty">暂无 AI 调整结果，将使用当前内容导出。</p>
@@ -285,8 +334,17 @@
             <button class="secondary search-export" type="button">导出搜索词</button>
           </div>
         </div>
-        <span class="char-counter" data-counter-type="search">0 / 250</span>
-        <textarea class="search-text" rows="2" placeholder="点击生成搜索词或手动输入"></textarea>
+        <div
+          class="search-dropzone title-dropzone"
+          data-container-type="search"
+          data-container-id=""
+          data-sku-id=""
+        >
+          <p class="placeholder">拖放关键词组成搜索词</p>
+          <div class="dropzone-footer">
+            <span class="char-counter" data-counter-type="search">0 / 250</span>
+          </div>
+        </div>
       </div>
     </div>
   </template>
@@ -357,9 +415,49 @@
 
   <template id="keyword-pill-template">
     <div class="keyword-pill" draggable="true" data-keyword-id="">
-      <span class="keyword-label"></span>
-      <small class="keyword-meta"></small>
-      <button class="pill-remove" type="button" title="从标题中移除">×</button>
+      <div class="pill-content">
+        <span class="keyword-label"></span>
+        <small class="keyword-meta"></small>
+      </div>
+      <div class="pill-controls">
+        <button class="pill-edit" type="button" title="编辑关键词">✎</button>
+        <button class="pill-remove" type="button" title="移除">×</button>
+      </div>
+    </div>
+  </template>
+
+  <template id="keyword-edit-template">
+    <div class="keyword-edit-overlay">
+      <div class="keyword-edit-dialog">
+        <h3>编辑关键词</h3>
+        <form class="keyword-edit-form">
+          <div class="field-group">
+            <label>关键词</label>
+            <p class="keyword-edit-text"></p>
+          </div>
+          <div class="field-group">
+            <label>关键词类型</label>
+            <select class="keyword-edit-type">
+              <option value="core">核心词</option>
+              <option value="feature">特征词</option>
+              <option value="scene">场景词</option>
+              <option value="minor">小语种词</option>
+            </select>
+          </div>
+          <div class="field-group">
+            <label>热度变化</label>
+            <input type="text" class="keyword-edit-heat" placeholder="例如：+12%" />
+          </div>
+          <div class="field-group">
+            <label>搜索排名</label>
+            <input type="text" class="keyword-edit-rank" placeholder="例如：Top 10" />
+          </div>
+          <div class="dialog-actions">
+            <button type="button" class="text keyword-edit-cancel">取消</button>
+            <button type="submit" class="primary">保存</button>
+          </div>
+        </form>
+      </div>
     </div>
   </template>
 

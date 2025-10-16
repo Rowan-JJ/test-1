@@ -89,6 +89,10 @@ const state = {
     titles: createPreviewBucket({ enableFrequency: true }),
     search: createPreviewBucket({ enableFrequency: false }),
   },
+  previewFormats: {
+    titles: 'simple',
+    search: 'simple',
+  },
 };
 
 let keywordCounter = 0;
@@ -96,7 +100,20 @@ let spuCounter = 0;
 let skuCounter = 0;
 let pendingKeywordCounter = 0;
 
-const keywordListEl = document.getElementById('keyword-list');
+const topNav = document.querySelector('.top-nav');
+
+const keywordCategoryEls = {
+  core: document.getElementById('keyword-list-core'),
+  feature: document.getElementById('keyword-list-feature'),
+  scene: document.getElementById('keyword-list-scene'),
+  minor: document.getElementById('keyword-list-minor'),
+};
+const keywordCategoryCountEls = {
+  core: document.querySelector('[data-count-type="core"]'),
+  feature: document.querySelector('[data-count-type="feature"]'),
+  scene: document.querySelector('[data-count-type="scene"]'),
+  minor: document.querySelector('[data-count-type="minor"]'),
+};
 const keywordForm = document.getElementById('keyword-form');
 const clearLibraryBtn = document.getElementById('clear-library');
 const keywordTypeSelect = document.getElementById('keyword-type');
@@ -128,10 +145,12 @@ const titlePreviewElements = {
   exportBtn: document.getElementById('title-preview-export'),
   copyBtn: document.getElementById('title-preview-copy'),
   aiBtn: document.getElementById('title-preview-ai'),
+  formatSelect: document.getElementById('title-preview-format'),
   frequencyBlock: document.getElementById('title-frequency-block'),
   frequencyList: document.getElementById('title-preview-frequency-list'),
   frequencyBtn: document.getElementById('title-preview-frequency'),
   frequencyClear: document.getElementById('title-preview-frequency-clear'),
+  aiChars: document.getElementById('title-preview-ai-chars'),
 };
 
 const searchPreviewElements = {
@@ -147,6 +166,8 @@ const searchPreviewElements = {
   exportBtn: document.getElementById('search-preview-export'),
   copyBtn: document.getElementById('search-preview-copy'),
   aiBtn: document.getElementById('search-preview-ai'),
+  formatSelect: document.getElementById('search-preview-format'),
+  aiChars: document.getElementById('search-preview-ai-chars'),
 };
 
 const fivePointContainer = document.getElementById('five-point-container');
@@ -158,10 +179,34 @@ const accessCodeInput = document.getElementById('access-code-input');
 const accessErrorEl = document.getElementById('access-error');
 
 const keywordPillTemplate = document.getElementById('keyword-pill-template');
+const keywordEditTemplate = document.getElementById('keyword-edit-template');
 const spuTemplate = document.getElementById('spu-template');
 const skuTemplate = document.getElementById('sku-template');
 
 ensureFixedKeywords();
+
+function updateNavMetrics() {
+  if (!topNav) return;
+  const navHeight = topNav.offsetHeight;
+  if (!navHeight) return;
+  const value = `${navHeight}px`;
+  const root = document.documentElement;
+  root.style.setProperty('--nav-height', value);
+  root.style.setProperty('--nav-offset', value);
+}
+
+let navMetricsRaf = null;
+if (topNav) {
+  const scheduleNavUpdate = () => {
+    if (navMetricsRaf) {
+      cancelAnimationFrame(navMetricsRaf);
+    }
+    navMetricsRaf = requestAnimationFrame(updateNavMetrics);
+  };
+  window.addEventListener('resize', scheduleNavUpdate);
+  window.addEventListener('load', updateNavMetrics);
+  updateNavMetrics();
+}
 
 function getKeywordTypeLabel(type) {
   return KEYWORD_TYPES.find((item) => item.value === type)?.label || '未分类';
@@ -173,6 +218,14 @@ function getKeywordCollection(spu, containerType, containerId) {
       spu.subtitleKeywords = [];
     }
     return spu.subtitleKeywords;
+  }
+  if (containerType === 'search') {
+    const skuSearch = spu.skus.find((item) => item.id === containerId);
+    if (!skuSearch) return null;
+    if (!Array.isArray(skuSearch.searchKeywords)) {
+      skuSearch.searchKeywords = [];
+    }
+    return skuSearch.searchKeywords;
   }
   const sku = spu.skus.find((item) => item.id === containerId);
   return sku?.titleKeywords ?? null;
@@ -207,10 +260,52 @@ function createSearchPattern() {
   return pattern;
 }
 
+function parseHeatValue(raw) {
+  if (raw == null) return Number.NEGATIVE_INFINITY;
+  const text = String(raw).trim();
+  if (!text) return Number.NEGATIVE_INFINITY;
+  const normalized = text.replace(/[^0-9+\-.]/g, '');
+  const value = Number.parseFloat(normalized);
+  return Number.isFinite(value) ? value : Number.NEGATIVE_INFINITY;
+}
+
+function getKeywordHeatValue(keyword) {
+  if (!keyword) return Number.NEGATIVE_INFINITY;
+  return Number.isFinite(keyword.heatValue) ? keyword.heatValue : Number.NEGATIVE_INFINITY;
+}
+
+function compareKeywordsForLibrary(a, b) {
+  const heatDiff = getKeywordHeatValue(b) - getKeywordHeatValue(a);
+  if (heatDiff !== 0) return heatDiff;
+  return a.text.localeCompare(b.text, 'zh-Hans-CN');
+}
+
+function incrementUsage(map, keywordId, amount = 1) {
+  if (!keywordId) return;
+  map.set(keywordId, (map.get(keywordId) || 0) + amount);
+}
+
+function computeSpuKeywordUsage(spu, { excludeSearchSkuId } = {}) {
+  const usage = new Map();
+  const record = (ids, skuId) => {
+    if (!Array.isArray(ids)) return;
+    if (excludeSearchSkuId && skuId && skuId === excludeSearchSkuId) return;
+    for (const id of ids) {
+      incrementUsage(usage, id);
+    }
+  };
+  record(spu.subtitleKeywords);
+  for (const sku of spu.skus) {
+    record(sku.titleKeywords);
+    record(sku.searchKeywords, sku.id);
+  }
+  return usage;
+}
+
 function ensureFixedKeywords() {
   for (const keyword of Object.values(FIXED_KEYWORDS)) {
     if (!state.keywords.has(keyword.id)) {
-      state.keywords.set(keyword.id, { ...keyword });
+      state.keywords.set(keyword.id, { ...keyword, heatValue: parseHeatValue(keyword.heat) });
     }
   }
 }
@@ -254,6 +349,7 @@ function createKeyword({ text, heat, rank, color, type }) {
     rank,
     type: finalType,
     color: color || state.keywordTypeColors[finalType] || DEFAULT_TYPE_COLORS[finalType] || DEFAULT_TYPE_COLORS.core,
+    heatValue: parseHeatValue(heat),
   };
   state.keywords.set(id, keyword);
   renderKeywordLibrary();
@@ -261,22 +357,58 @@ function createKeyword({ text, heat, rank, color, type }) {
 }
 
 function renderKeywordLibrary() {
-  keywordListEl.innerHTML = '';
-  const fragment = document.createDocumentFragment();
-  let visibleCount = 0;
+  const groups = {};
+  for (const { value } of KEYWORD_TYPES) {
+    groups[value] = [];
+    const container = keywordCategoryEls[value];
+    if (container) {
+      container.innerHTML = '';
+    }
+    const countEl = keywordCategoryCountEls[value];
+    if (countEl) {
+      countEl.textContent = '';
+    }
+  }
+
   for (const keyword of state.keywords.values()) {
     if (keyword.virtual) continue;
-    visibleCount += 1;
-    fragment.appendChild(createKeywordPill(keyword, { allowRemove: false }));
+    const type = KEYWORD_TYPES.some((item) => item.value === keyword.type) ? keyword.type : 'core';
+    if (!groups[type]) {
+      groups[type] = [];
+    }
+    if (!Number.isFinite(keyword.heatValue)) {
+      keyword.heatValue = parseHeatValue(keyword.heat);
+    }
+    groups[type].push(keyword);
   }
-  if (!visibleCount) {
-    const empty = document.createElement('p');
-    empty.className = 'hint';
-    empty.textContent = '还没有关键词，请先在上方添加。';
-    keywordListEl.appendChild(empty);
-    return;
+
+  for (const { value, label } of KEYWORD_TYPES) {
+    const container = keywordCategoryEls[value];
+    const countEl = keywordCategoryCountEls[value];
+    const list = groups[value] || [];
+    if (countEl) {
+      countEl.textContent = list.length ? `${list.length} 个词` : '';
+    }
+    if (!container) continue;
+    if (!list.length) {
+      const empty = document.createElement('p');
+      empty.className = 'hint empty-hint';
+      empty.textContent = `暂无${label}`;
+      container.appendChild(empty);
+      continue;
+    }
+    const fragment = document.createDocumentFragment();
+    const sorted = list.slice().sort(compareKeywordsForLibrary);
+    for (const keyword of sorted) {
+      fragment.appendChild(
+        createKeywordPill(keyword, {
+          allowRemove: !keyword.fixed,
+          context: { scope: 'library' },
+        }),
+      );
+    }
+    container.appendChild(fragment);
   }
-  keywordListEl.appendChild(fragment);
 }
 
 function createKeywordPill(keyword, { allowRemove, context } = {}) {
@@ -298,29 +430,129 @@ function createKeywordPill(keyword, { allowRemove, context } = {}) {
       metaEl.hidden = true;
     }
   }
-  const removable = allowRemove && !keyword.fixed;
-  if (!removable) {
-    const removeBtn = pill.querySelector('.pill-remove');
-    if (removeBtn) removeBtn.remove();
-  } else {
-    const btn = pill.querySelector('.pill-remove');
-    btn.addEventListener('click', () => {
-      if (!context) return;
-      const { spuId, containerId, containerType, keywordId } = context;
-      const spu = state.spus.get(spuId);
-      if (!spu) return;
-      const collection = getKeywordCollection(spu, containerType, containerId);
-      if (!collection) return;
-      const index = collection.indexOf(keywordId);
-      if (index < 0) return;
-      collection.splice(index, 1);
-      renderSpu(spuId);
-    });
+  const isLibrary = context?.scope === 'library';
+  const removeBtn = pill.querySelector('.pill-remove');
+  if (removeBtn) {
+    if (allowRemove && (!keyword.fixed || isLibrary)) {
+      removeBtn.addEventListener('click', (event) => {
+        event.stopPropagation();
+        if (isLibrary) {
+          deleteKeywordFromLibrary(keyword.id);
+        } else if (context) {
+          const { spuId, containerId, containerType, keywordId } = context;
+          const spu = state.spus.get(spuId);
+          if (!spu) return;
+          const collection = getKeywordCollection(spu, containerType, containerId);
+          if (!collection) return;
+          const index = collection.indexOf(keywordId);
+          if (index < 0) return;
+          collection.splice(index, 1);
+          renderSpu(spuId);
+        }
+      });
+    } else {
+      removeBtn.remove();
+    }
+  }
+
+  const editBtn = pill.querySelector('.pill-edit');
+  if (editBtn) {
+    if (isLibrary && !keyword.fixed) {
+      editBtn.addEventListener('click', (event) => {
+        event.stopPropagation();
+        openKeywordEditor(keyword.id);
+      });
+    } else {
+      editBtn.remove();
+    }
   }
 
   pill.addEventListener('dragstart', (event) => handleDragStart(event, { context }));
   pill.addEventListener('click', () => copyKeyword(keyword));
   return pill;
+}
+
+function deleteKeywordFromLibrary(keywordId) {
+  const keyword = state.keywords.get(keywordId);
+  if (!keyword || keyword.fixed) return;
+  state.keywords.delete(keywordId);
+  for (const spu of state.spus.values()) {
+    if (Array.isArray(spu.subtitleKeywords)) {
+      spu.subtitleKeywords = spu.subtitleKeywords.filter((id) => id !== keywordId);
+    }
+    for (const sku of spu.skus) {
+      if (Array.isArray(sku.titleKeywords)) {
+        sku.titleKeywords = sku.titleKeywords.filter((id) => id !== keywordId);
+      }
+      if (Array.isArray(sku.searchKeywords)) {
+        sku.searchKeywords = sku.searchKeywords.filter((id) => id !== keywordId);
+      }
+    }
+  }
+  renderKeywordLibrary();
+  renderSpuList();
+  showToast(`已从关键词库移除“${keyword.text}”`);
+}
+
+function openKeywordEditor(keywordId) {
+  const keyword = state.keywords.get(keywordId);
+  if (!keyword || keyword.fixed || !keywordEditTemplate) return;
+  const overlay = keywordEditTemplate.content.firstElementChild.cloneNode(true);
+  const textEl = overlay.querySelector('.keyword-edit-text');
+  const typeSelect = overlay.querySelector('.keyword-edit-type');
+  const heatInput = overlay.querySelector('.keyword-edit-heat');
+  const rankInput = overlay.querySelector('.keyword-edit-rank');
+  const cancelBtn = overlay.querySelector('.keyword-edit-cancel');
+  const form = overlay.querySelector('.keyword-edit-form');
+
+  if (textEl) textEl.textContent = keyword.text;
+  if (typeSelect) {
+    typeSelect.value = KEYWORD_TYPES.some((item) => item.value === keyword.type) ? keyword.type : 'core';
+  }
+  if (heatInput) heatInput.value = keyword.heat || '';
+  if (rankInput) rankInput.value = keyword.rank || '';
+
+  const close = () => {
+    overlay.remove();
+  };
+
+  overlay.addEventListener('click', (event) => {
+    if (event.target === overlay) {
+      close();
+    }
+  });
+
+  if (cancelBtn) {
+    cancelBtn.addEventListener('click', (event) => {
+      event.preventDefault();
+      close();
+    });
+  }
+
+  if (form) {
+    form.addEventListener('submit', (event) => {
+      event.preventDefault();
+      const newType = typeSelect?.value && KEYWORD_TYPES.some((item) => item.value === typeSelect.value)
+        ? typeSelect.value
+        : 'core';
+      const newHeat = heatInput?.value?.trim() || '';
+      const newRank = rankInput?.value?.trim() || '';
+      keyword.type = newType;
+      keyword.heat = newHeat;
+      keyword.rank = newRank;
+      keyword.heatValue = parseHeatValue(newHeat);
+      keyword.color =
+        state.keywordTypeColors[newType] ||
+        DEFAULT_TYPE_COLORS[newType] ||
+        keyword.color;
+      close();
+      renderKeywordLibrary();
+      renderSpuList();
+      showToast('关键词信息已更新');
+    });
+  }
+
+  document.body.appendChild(overlay);
 }
 
 function renderDropzoneKeywords(dropzone, keywords, optionsFactory) {
@@ -346,9 +578,13 @@ function renderDropzoneKeywords(dropzone, keywords, optionsFactory) {
 }
 
 function getCharacterLimit(containerType) {
-  return containerType === 'subtitle'
-    ? state.settings.subtitleLimit || DEFAULT_SUBTITLE_LIMIT
-    : state.settings.skuTitleLimit || DEFAULT_SKU_TITLE_LIMIT;
+  if (containerType === 'subtitle') {
+    return state.settings.subtitleLimit || DEFAULT_SUBTITLE_LIMIT;
+  }
+  if (containerType === 'search') {
+    return getSearchLimit();
+  }
+  return state.settings.skuTitleLimit || DEFAULT_SKU_TITLE_LIMIT;
 }
 
 function buildTextFromKeywordIds(keywordIds) {
@@ -382,21 +618,9 @@ function updateDropzoneMeta(dropzone, keywordIds) {
 
 function updateSearchMeta(skuElement, sku) {
   if (!skuElement || !sku) return;
-  const textarea = skuElement.querySelector('.search-text');
-  const counter = skuElement.querySelector('.char-counter[data-counter-type="search"]');
-  const limit = getSearchLimit();
-  if (textarea) {
-    const value = textarea.value ?? '';
-    const over = value.length > limit;
-    textarea.classList.toggle('over-limit', over);
-    if (counter) {
-      counter.textContent = `${value.length} / ${limit}`;
-      counter.classList.toggle('over', over);
-    }
-  } else if (counter) {
-    counter.textContent = `0 / ${limit}`;
-    counter.classList.remove('over');
-  }
+  const dropzone = skuElement.querySelector('.search-dropzone');
+  if (!dropzone) return;
+  updateDropzoneMeta(dropzone, sku.searchKeywords);
 }
 
 function refreshAllDropzoneMetas() {
@@ -420,7 +644,12 @@ function validateContainerLength(spuId, containerType, containerId, keywords) {
   const limit = getCharacterLimit(containerType);
   const text = buildTextFromKeywordIds(keywords);
   if (text.length > limit) {
-    const label = containerType === 'subtitle' ? '副标题' : '标题';
+    const label =
+      containerType === 'subtitle'
+        ? '副标题'
+        : containerType === 'search'
+          ? '搜索词'
+          : '标题';
     showToast(`${label}字符数超过限制（${text.length} / ${limit}）`, true);
     return false;
   }
@@ -563,7 +792,12 @@ async function classifyPendingKeywords(items) {
     })
     .join('\n');
 
-  const prompt = `请将以下关键词归类为核心词(core)、特征词(feature)、场景词(scene)或小语种词(minor)。` +
+  const prompt =
+    `请根据以下规则将关键词归类为核心词(core)、特征词(feature)、场景词(scene)或小语种词(minor)：\n` +
+    `- 核心词(core)：能够直接描述产品品类的关键词或短语，通常较短，不含颜色、材质、功能等额外修饰，如 "bodysuit for women"。\n` +
+    `- 特征词(feature)：描述功能、材质、颜色或卖点的长尾词，可能包含核心词，如 "long sleeve bodysuits"；只要出现额外的修饰信息，即使包含核心词也判定为特征词。\n` +
+    `- 场景词(scene)：描绘使用场景、对象、节日或搭配场景的词语。\n` +
+    `- 小语种词(minor)：除中文和英文外的其他语言词汇。\n` +
     `请仅返回 JSON 数组，格式如 [{"id":"pending_1","type":"core"}]，type 字段只能是 core、feature、scene、minor 之一。\n\n${listText}`;
 
   try {
@@ -665,15 +899,15 @@ async function classifyPendingKeywords(items) {
 
 function handleDragStart(event, { context }) {
   const keywordId = event.currentTarget.dataset.keywordId;
-  const payload = context
-    ? {
+  const payload = !context || context.scope === 'library'
+    ? { type: 'library', keywordId }
+    : {
         type: 'title',
         keywordId,
         containerId: context.containerId,
         containerType: context.containerType,
         spuId: context.spuId,
-      }
-    : { type: 'library', keywordId };
+      };
   event.dataTransfer.setData('application/json', JSON.stringify(payload));
   event.dataTransfer.effectAllowed = 'move';
 }
@@ -929,7 +1163,7 @@ function addSku(spuId, { name }) {
     id: `sku_${++skuCounter}`,
     name,
     titleKeywords: [],
-    searchTerms: '',
+    searchKeywords: [],
   };
   spu.skus.push(sku);
   renderSpu(spuId);
@@ -1106,20 +1340,23 @@ function renderSku(spuId, sku) {
   }));
   updateSkuMeta(skuElement, sku);
 
-  if (typeof sku.searchTerms !== 'string') {
-    sku.searchTerms = sku.searchTerms ? String(sku.searchTerms) : '';
+  if (!Array.isArray(sku.searchKeywords)) {
+    sku.searchKeywords = Array.isArray(sku.searchKeywords) ? sku.searchKeywords.slice() : [];
   }
 
-  const searchTextarea = skuElement.querySelector('.search-text');
+  const searchDropzone = skuElement.querySelector('.search-dropzone');
   const searchGenerateBtn = skuElement.querySelector('.search-generate');
   const searchExportBtn = skuElement.querySelector('.search-export');
 
-  if (searchTextarea) {
-    searchTextarea.value = sku.searchTerms || '';
-    searchTextarea.addEventListener('input', () => {
-      sku.searchTerms = searchTextarea.value;
-      updateSearchMeta(skuElement, sku);
-    });
+  if (searchDropzone) {
+    searchDropzone.dataset.skuId = sku.id;
+    searchDropzone.dataset.containerType = 'search';
+    searchDropzone.dataset.containerId = sku.id;
+    bindDropzoneEvents(searchDropzone);
+    renderDropzoneKeywords(searchDropzone, sku.searchKeywords, (keywordId) => ({
+      allowRemove: true,
+      context: { spuId, containerType: 'search', containerId: sku.id, keywordId },
+    }));
   }
 
   if (searchGenerateBtn) {
@@ -1233,37 +1470,35 @@ function autoGenerateTitles(spuId) {
     return;
   }
 
-  const keywordsByType = {};
-  for (const { value } of KEYWORD_TYPES) {
-    keywordsByType[value] = [];
-  }
-
+  const pools = { core: [], feature: [], scene: [] };
   for (const keyword of state.keywords.values()) {
     if (keyword.virtual) continue;
-    if (keywordsByType[keyword.type]) {
-      keywordsByType[keyword.type].push(keyword.id);
+    if (pools[keyword.type]) {
+      pools[keyword.type].push(keyword);
     }
   }
 
-  if ((keywordsByType.core || []).length < 2) {
+  if ((pools.core || []).length < 2) {
     showToast('请至少添加 2 个核心词', true);
     return;
   }
-  if ((keywordsByType.feature || []).length < 2) {
+  if ((pools.feature || []).length < 2) {
     showToast('请至少添加 2 个特征词', true);
     return;
   }
-  if ((keywordsByType.scene || []).length < 2) {
+  if ((pools.scene || []).length < 2) {
     showToast('请至少添加 2 个场景词', true);
     return;
   }
 
-  const selectors = {};
-  for (const [type, ids] of Object.entries(keywordsByType)) {
-    if (ids.length) {
-      selectors[type] = { list: shuffle(ids), pointer: 0 };
-    }
-  }
+  const usage = computeSpuKeywordUsage(spu);
+  const comparator = (a, b) => {
+    const usageDiff = (usage.get(a.id) || 0) - (usage.get(b.id) || 0);
+    if (usageDiff !== 0) return usageDiff;
+    const heatDiff = getKeywordHeatValue(b) - getKeywordHeatValue(a);
+    if (heatDiff !== 0) return heatDiff;
+    return a.text.localeCompare(b.text, 'zh-Hans-CN');
+  };
 
   const targets = [
     { type: 'subtitle', apply: (keywords) => { spu.subtitleKeywords = keywords; } },
@@ -1277,86 +1512,60 @@ function autoGenerateTitles(spuId) {
   ];
 
   const assignments = [];
-  const baseAttemptLimit = Math.max(
-    10,
-    ...Object.values(selectors).map((selector) => selector.list.length * 2 || 0),
-  );
-
-  const pickWordWithShift = (type, usedSet, shift) => {
-    const selector = selectors[type];
-    if (!selector || !selector.list.length) return null;
-    for (let i = 0; i < selector.list.length; i += 1) {
-      const idx = (selector.pointer + shift + i) % selector.list.length;
-      const candidate = selector.list[idx];
-      if (!usedSet.has(candidate)) {
-        usedSet.add(candidate);
-        return { id: candidate, index: idx };
-      }
-    }
-    return null;
-  };
+  const MAX_CANDIDATES_PER_TYPE = 5;
+  const brandId = FIXED_KEYWORDS.brand.id;
+  const sizeId = FIXED_KEYWORDS.size.id;
 
   for (const target of targets) {
     const containerType = target.type === 'subtitle' ? 'subtitle' : 'sku';
     const limit = getCharacterLimit(containerType);
-    let success = false;
-    let pointerUpdates = null;
-    let combination = [];
 
-    for (let attempt = 0; attempt < baseAttemptLimit; attempt += 1) {
-      const used = new Set();
-      const localPointers = {};
+    const coreList = pools.core.slice().sort(comparator).slice(0, MAX_CANDIDATES_PER_TYPE);
+    const featureList = pools.feature.slice().sort(comparator).slice(0, MAX_CANDIDATES_PER_TYPE);
+    const sceneList = pools.scene.slice().sort(comparator).slice(0, MAX_CANDIDATES_PER_TYPE);
 
-      const recordPick = (typeName, pick) => {
-        if (pick) {
-          localPointers[typeName] = pick.index;
+    let combination = null;
+
+    outerCore1: for (let i = 0; i < coreList.length; i += 1) {
+      for (let j = 0; j < coreList.length; j += 1) {
+        if (j === i) continue;
+        for (let f1 = 0; f1 < featureList.length; f1 += 1) {
+          for (let f2 = 0; f2 < featureList.length; f2 += 1) {
+            if (f2 === f1) continue;
+            for (let s1 = 0; s1 < sceneList.length; s1 += 1) {
+              for (let s2 = 0; s2 < sceneList.length; s2 += 1) {
+                if (s2 === s1) continue;
+                const ids = [
+                  brandId,
+                  coreList[i].id,
+                  featureList[f1].id,
+                  coreList[j].id,
+                  featureList[f2].id,
+                  sceneList[s1].id,
+                  sceneList[s2].id,
+                  sizeId,
+                ];
+                const titleText = buildTextFromKeywordIds(ids);
+                if (titleText.length <= limit) {
+                  combination = { ids, words: [coreList[i], coreList[j], featureList[f1], featureList[f2], sceneList[s1], sceneList[s2]] };
+                  break outerCore1;
+                }
+              }
+            }
+          }
         }
-      };
-
-      const core1 = pickWordWithShift('core', used, attempt);
-      if (!core1) continue;
-      recordPick('core', core1);
-      const feature1 = pickWordWithShift('feature', used, attempt);
-      if (!feature1) continue;
-      recordPick('feature', feature1);
-      const core2 = pickWordWithShift('core', used, attempt + 1);
-      if (!core2) continue;
-      recordPick('core', core2);
-      const feature2 = pickWordWithShift('feature', used, attempt + 1);
-      if (!feature2) continue;
-      recordPick('feature', feature2);
-      const scene1 = pickWordWithShift('scene', used, attempt);
-      if (!scene1) continue;
-      recordPick('scene', scene1);
-      const scene2 = pickWordWithShift('scene', used, attempt + 1);
-      if (!scene2) continue;
-      recordPick('scene', scene2);
-
-      const brandId = FIXED_KEYWORDS.brand.id;
-      const sizeId = FIXED_KEYWORDS.size.id;
-      combination = [brandId, core1.id, feature1.id, core2.id, feature2.id, scene1.id, scene2.id, sizeId];
-      const titleText = buildTextFromKeywordIds(combination);
-      if (titleText.length <= limit) {
-        success = true;
-        pointerUpdates = localPointers;
-        break;
       }
     }
 
-    if (!success) {
+    if (!combination) {
       showToast('未能生成满足字符限制的标题，请调整关键词或提高上限', true);
       return;
     }
 
-    assignments.push(() => target.apply(combination.slice()));
+    assignments.push(() => target.apply(combination.ids.slice()));
 
-    if (pointerUpdates) {
-      for (const [typeName, index] of Object.entries(pointerUpdates)) {
-        const selector = selectors[typeName];
-        if (selector && selector.list.length) {
-          selector.pointer = (index + 1) % selector.list.length;
-        }
-      }
+    for (const keyword of combination.words) {
+      incrementUsage(usage, keyword.id);
     }
   }
 
@@ -1379,20 +1588,23 @@ function generateSearchTerms(spuId, skuId, options = {}) {
     }
     return false;
   }
+  if (!Array.isArray(sku.searchKeywords)) {
+    sku.searchKeywords = [];
+  }
+
   const usedKeywordIds = new Set(sku.titleKeywords || []);
-  const pools = {
-    core: [],
-    feature: [],
-    scene: [],
-    minor: [],
-  };
+  const pools = {};
+  for (const { value } of KEYWORD_TYPES) {
+    pools[value] = [];
+  }
   for (const keyword of state.keywords.values()) {
     if (keyword.virtual) continue;
+    const type = KEYWORD_TYPES.some((item) => item.value === keyword.type) ? keyword.type : 'core';
     if (usedKeywordIds.has(keyword.id)) continue;
-    if (pools[keyword.type]) {
-      pools[keyword.type].push(keyword);
-    }
+    if (!pools[type]) pools[type] = [];
+    pools[type].push(keyword);
   }
+
   const availableCount = Object.values(pools).reduce((total, list) => total + list.length, 0);
   if (!availableCount) {
     if (!options.silent) {
@@ -1401,37 +1613,53 @@ function generateSearchTerms(spuId, skuId, options = {}) {
     return false;
   }
 
-  const selectors = {};
-  for (const [type, list] of Object.entries(pools)) {
-    if (list.length) {
-      selectors[type] = shuffle(list);
-    }
-  }
+  const usage = computeSpuKeywordUsage(spu, { excludeSearchSkuId: sku.id });
 
-  const pattern = SEARCH_TYPE_PATTERN.length ? SEARCH_TYPE_PATTERN : Object.keys(selectors);
-  const words = [];
+  const comparator = (a, b) => {
+    const usageDiff = (usage.get(a.id) || 0) - (usage.get(b.id) || 0);
+    if (usageDiff !== 0) return usageDiff;
+    const heatDiff = getKeywordHeatValue(b) - getKeywordHeatValue(a);
+    if (heatDiff !== 0) return heatDiff;
+    return a.text.localeCompare(b.text, 'zh-Hans-CN');
+  };
+
   const limit = getSearchLimit();
+  const selected = [];
+  const selectedSet = new Set();
+
+  const tryAddKeyword = (keyword) => {
+    if (!keyword || selectedSet.has(keyword.id)) return false;
+    const tentative = selected.concat(keyword.id);
+    const text = buildTextFromKeywordIds(tentative);
+    if (text.length > limit) return false;
+    selected.push(keyword.id);
+    selectedSet.add(keyword.id);
+    incrementUsage(usage, keyword.id);
+    return true;
+  };
+
+  const pattern = (SEARCH_TYPE_PATTERN.length ? SEARCH_TYPE_PATTERN : Object.keys(pools)).filter(
+    (type) => pools[type]?.length,
+  );
   let patternIndex = 0;
   let idleSteps = 0;
   const maxIdle = Math.max(pattern.length * 3, 12);
 
-  const hasRemainingPool = () => Object.values(selectors).some((pool) => pool && pool.length);
+  const hasRemainingPool = () => Object.values(pools).some((pool) => pool && pool.length);
 
-  while (hasRemainingPool() && idleSteps < maxIdle) {
-    if (!pattern.length) break;
+  while (pattern.length && hasRemainingPool() && idleSteps < maxIdle) {
     const type = pattern[patternIndex % pattern.length];
     patternIndex += 1;
-    const pool = selectors[type];
+    const pool = pools[type];
     if (!pool || !pool.length) {
       idleSteps += 1;
       continue;
     }
+    pool.sort(comparator);
     let added = false;
     for (let i = 0; i < pool.length; i += 1) {
       const keyword = pool[i];
-      const tentative = words.length ? `${words.join(' ')} ${keyword.text}` : keyword.text;
-      if (tentative.length <= limit) {
-        words.push(keyword.text);
+      if (tryAddKeyword(keyword)) {
         pool.splice(i, 1);
         added = true;
         idleSteps = 0;
@@ -1443,31 +1671,21 @@ function generateSearchTerms(spuId, skuId, options = {}) {
     }
   }
 
-  if (!words.length) {
+  if (!selected.length) {
     if (!options.silent) {
       showToast('未能在字符限制内生成搜索词，请调整限制或关键词', true);
     }
     return false;
   }
 
-  if (hasRemainingPool()) {
-    outer: for (const pool of Object.values(selectors)) {
-      if (!pool || !pool.length) continue;
-      for (let i = 0; i < pool.length; i += 1) {
-        const keyword = pool[i];
-        const tentative = words.length ? `${words.join(' ')} ${keyword.text}` : keyword.text;
-        if (tentative.length > limit) {
-          continue;
-        }
-        words.push(keyword.text);
-        if (tentative.length >= limit) {
-          break outer;
-        }
-      }
-    }
+  const remainingCandidates = Object.values(pools)
+    .flat()
+    .sort(comparator);
+  for (const keyword of remainingCandidates) {
+    tryAddKeyword(keyword);
   }
 
-  sku.searchTerms = words.join(' ');
+  sku.searchKeywords = selected;
   if (!options.skipRender) {
     renderSpu(spuId);
   }
@@ -1581,7 +1799,7 @@ function collectSearchPreviewItems() {
   for (const spu of state.spus.values()) {
     const spuLabel = spu.name || '未命名 SPU';
     for (const sku of spu.skus) {
-      const text = (sku.searchTerms || '').trim();
+      const text = buildTextFromKeywordIds(sku.searchKeywords);
       if (!text) continue;
       const skuLabel = sku.name || sku.id;
       items.push({
@@ -1597,10 +1815,19 @@ function collectSearchPreviewItems() {
   return items;
 }
 
-function formatPreviewItems(items) {
-  return (items || [])
-    .map((item, index) => `${index + 1}. ${item.label}: ${item.text}`)
-    .join('\n\n');
+function formatPreviewItems(items, format = 'simple') {
+  if (!Array.isArray(items) || !items.length) return '';
+  if (format === 'detailed') {
+    return items
+      .map((item, index) => `${index + 1}. ${item.label}: ${item.text}`)
+      .join('\n\n');
+  }
+  return items.map((item) => item.text).join('\n');
+}
+
+function getPreviewFormat(kind) {
+  const format = state.previewFormats?.[kind];
+  return format === 'detailed' ? 'detailed' : 'simple';
 }
 
 function getPreviewBucket(kind) {
@@ -1630,14 +1857,15 @@ function getActivePreviewItems(kind) {
 function getPreviewCopyPayload(kind) {
   const bucket = getPreviewBucket(kind);
   if (!bucket) return '';
+  const format = getPreviewFormat(kind);
   if (bucket.aiItems?.length) {
-    return formatPreviewItems(bucket.aiItems);
+    return formatPreviewItems(bucket.aiItems, format);
   }
   if (bucket.aiRaw) {
     return bucket.aiRaw;
   }
   if (bucket.items?.length) {
-    return formatPreviewItems(bucket.items);
+    return formatPreviewItems(bucket.items, format);
   }
   return '';
 }
@@ -1651,6 +1879,7 @@ function renderTitlePreview() {
   const bucket = getPreviewBucket('titles');
   if (!bucket) return;
   const hasItems = Boolean(bucket.items?.length);
+  const format = getPreviewFormat('titles');
   if (titlePreviewElements.empty) {
     titlePreviewElements.empty.hidden = hasItems;
   }
@@ -1658,7 +1887,7 @@ function renderTitlePreview() {
     titlePreviewElements.currentBlock.hidden = !hasItems;
     if (hasItems) {
       if (titlePreviewElements.text) {
-        titlePreviewElements.text.textContent = formatPreviewItems(bucket.items);
+        titlePreviewElements.text.textContent = formatPreviewItems(bucket.items, format);
       }
       if (titlePreviewElements.count) {
         titlePreviewElements.count.textContent = `${bucket.items.length} 条内容`;
@@ -1677,18 +1906,27 @@ function renderTitlePreview() {
   if (titlePreviewElements.aiBlock) {
     const shouldShow = hasItems;
     titlePreviewElements.aiBlock.hidden = !shouldShow;
+    if (!shouldShow && titlePreviewElements.aiChars) {
+      titlePreviewElements.aiChars.textContent = '';
+    }
     if (shouldShow) {
       if (titlePreviewElements.aiEmpty) {
         titlePreviewElements.aiEmpty.hidden = hasAiText;
       }
       if (titlePreviewElements.aiText) {
         if (hasAiText) {
-          const text = bucket.aiItems?.length ? formatPreviewItems(bucket.aiItems) : bucket.aiRaw;
+          const text = bucket.aiItems?.length ? formatPreviewItems(bucket.aiItems, format) : bucket.aiRaw;
           titlePreviewElements.aiText.textContent = text;
           titlePreviewElements.aiText.hidden = false;
+          if (titlePreviewElements.aiChars) {
+            titlePreviewElements.aiChars.textContent = text ? `字符数：${text.length}` : '';
+          }
         } else {
           titlePreviewElements.aiText.textContent = '';
           titlePreviewElements.aiText.hidden = true;
+          if (titlePreviewElements.aiChars) {
+            titlePreviewElements.aiChars.textContent = '';
+          }
         }
       }
     }
@@ -1735,6 +1973,7 @@ function renderSearchPreview() {
   const bucket = getPreviewBucket('search');
   if (!bucket) return;
   const hasItems = Boolean(bucket.items?.length);
+  const format = getPreviewFormat('search');
   if (searchPreviewElements.empty) {
     searchPreviewElements.empty.hidden = hasItems;
   }
@@ -1742,7 +1981,7 @@ function renderSearchPreview() {
     searchPreviewElements.currentBlock.hidden = !hasItems;
     if (hasItems) {
       if (searchPreviewElements.text) {
-        searchPreviewElements.text.textContent = formatPreviewItems(bucket.items);
+        searchPreviewElements.text.textContent = formatPreviewItems(bucket.items, format);
       }
       if (searchPreviewElements.count) {
         searchPreviewElements.count.textContent = `${bucket.items.length} 条内容`;
@@ -1761,18 +2000,27 @@ function renderSearchPreview() {
   if (searchPreviewElements.aiBlock) {
     const shouldShow = hasItems;
     searchPreviewElements.aiBlock.hidden = !shouldShow;
+    if (!shouldShow && searchPreviewElements.aiChars) {
+      searchPreviewElements.aiChars.textContent = '';
+    }
     if (shouldShow) {
       if (searchPreviewElements.aiEmpty) {
         searchPreviewElements.aiEmpty.hidden = hasAiText;
       }
       if (searchPreviewElements.aiText) {
         if (hasAiText) {
-          const text = bucket.aiItems?.length ? formatPreviewItems(bucket.aiItems) : bucket.aiRaw;
+          const text = bucket.aiItems?.length ? formatPreviewItems(bucket.aiItems, format) : bucket.aiRaw;
           searchPreviewElements.aiText.textContent = text;
           searchPreviewElements.aiText.hidden = false;
+          if (searchPreviewElements.aiChars) {
+            searchPreviewElements.aiChars.textContent = text ? `字符数：${text.length}` : '';
+          }
         } else {
           searchPreviewElements.aiText.textContent = '';
           searchPreviewElements.aiText.hidden = true;
+          if (searchPreviewElements.aiChars) {
+            searchPreviewElements.aiChars.textContent = '';
+          }
         }
       }
     }
@@ -1905,7 +2153,7 @@ async function adjustPreviewWithAI(kind) {
     }
     if (parsed > 0) {
       bucket.aiItems = aiItems;
-      bucket.aiRaw = formatPreviewItems(aiItems);
+      bucket.aiRaw = '';
     } else {
       bucket.aiItems = [];
       bucket.aiRaw = content;
@@ -1952,7 +2200,7 @@ function exportSearchTerms(spuId, skuId) {
   if (!spu) return;
   const sku = spu.skus.find((item) => item.id === skuId);
   if (!sku) return;
-  const text = (sku.searchTerms || '').trim();
+  const text = buildTextFromKeywordIds(sku.searchKeywords);
   if (!text) {
     alert('该 SKU 的搜索词为空，请先生成或输入。');
     return;
@@ -2058,7 +2306,7 @@ function exportAllSkuSearchTerms(spuId) {
   const terms = [];
   const emptySkus = [];
   for (const sku of spu.skus) {
-    const text = (sku.searchTerms || '').trim();
+    const text = buildTextFromKeywordIds(sku.searchKeywords);
     if (text) {
       terms.push(text);
     } else {
@@ -2113,7 +2361,7 @@ clearLibraryBtn.addEventListener('click', () => {
       spu.subtitleKeywords = [];
       for (const sku of spu.skus) {
         sku.titleKeywords = [];
-        sku.searchTerms = '';
+        sku.searchKeywords = [];
       }
     }
     renderPendingKeywords();
@@ -2176,19 +2424,7 @@ if (searchLimitInput) {
     const next = clampLimitValue(searchLimitInput.value, previous, { min: 50, max: 400 });
     state.settings.searchTermLimit = next;
     searchLimitInput.value = String(next);
-    document.querySelectorAll('.sku-card').forEach((card) => {
-      const skuId = card.dataset.skuId;
-      const spuId = card.closest('[data-spu-id]')?.dataset.spuId;
-      if (!skuId || !spuId) return;
-      const spu = state.spus.get(spuId);
-      const sku = spu?.skus.find((item) => item.id === skuId);
-      if (!sku) return;
-      const textarea = card.querySelector('.search-text');
-      if (textarea) {
-        textarea.value = sku.searchTerms || '';
-      }
-      updateSearchMeta(card, sku);
-    });
+    refreshAllDropzoneMetas();
   });
 }
 
@@ -2278,6 +2514,24 @@ if (typeColorGrid) {
   });
 }
 
+if (titlePreviewElements.formatSelect) {
+  titlePreviewElements.formatSelect.value = getPreviewFormat('titles');
+  titlePreviewElements.formatSelect.addEventListener('change', () => {
+    const value = titlePreviewElements.formatSelect.value === 'detailed' ? 'detailed' : 'simple';
+    state.previewFormats.titles = value;
+    renderPreview();
+  });
+}
+
+if (searchPreviewElements.formatSelect) {
+  searchPreviewElements.formatSelect.value = getPreviewFormat('search');
+  searchPreviewElements.formatSelect.addEventListener('change', () => {
+    const value = searchPreviewElements.formatSelect.value === 'detailed' ? 'detailed' : 'simple';
+    state.previewFormats.search = value;
+    renderPreview();
+  });
+}
+
 renderPreview();
 
 if (titlePreviewElements.exportBtn) {
@@ -2288,7 +2542,8 @@ if (titlePreviewElements.exportBtn) {
       return;
     }
     setPreviewItems('titles', items);
-    const payload = formatPreviewItems(items);
+    const format = getPreviewFormat('titles');
+    const payload = formatPreviewItems(items, format);
     navigator.clipboard?.writeText(payload).then(() => {
       showToast('标题已导出并复制到剪贴板');
     }).catch(() => {
@@ -2354,7 +2609,8 @@ if (searchPreviewElements.exportBtn) {
       return;
     }
     setPreviewItems('search', items);
-    const payload = formatPreviewItems(items);
+    const format = getPreviewFormat('search');
+    const payload = formatPreviewItems(items, format);
     navigator.clipboard?.writeText(payload).then(() => {
       showToast('搜索词已导出并复制到剪贴板');
     }).catch(() => {
