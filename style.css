@@ -130,9 +130,7 @@ p {
 }
 
 .library-panel {
-  position: sticky;
-  top: calc(var(--nav-height) + 16px);
-  z-index: 5;
+  align-self: flex-start;
 }
 
 .pending-keyword-panel {
@@ -370,6 +368,28 @@ button.text.danger:hover {
   display: flex;
   flex-direction: column;
   gap: 16px;
+  max-height: min(360px, 33vh);
+  overflow: hidden;
+}
+
+.keyword-scroll {
+  flex: 1;
+  overflow-y: auto;
+  padding-right: 4px;
+  scrollbar-width: thin;
+}
+
+.keyword-scroll::-webkit-scrollbar {
+  width: 8px;
+}
+
+.keyword-scroll::-webkit-scrollbar-thumb {
+  background: rgba(82, 96, 109, 0.25);
+  border-radius: 999px;
+}
+
+.keyword-scroll::-webkit-scrollbar-track {
+  background: transparent;
 }
 
 .library-header {
@@ -381,8 +401,9 @@ button.text.danger:hover {
 
 .keyword-list {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-  gap: 8px;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 6px;
+  padding-bottom: 6px;
 }
 
 .keyword-pill {
@@ -390,14 +411,14 @@ button.text.danger:hover {
   grid-template-columns: 1fr auto;
   gap: 2px;
   align-items: center;
-  padding: 6px 8px;
-  border-radius: 8px;
+  padding: 4px 6px;
+  border-radius: 7px;
   color: white;
-  font-size: 0.78rem;
+  font-size: 0.72rem;
   font-weight: 600;
   cursor: grab;
   position: relative;
-  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.12);
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.12);
   transition: transform 0.2s ease;
 }
 
@@ -826,14 +847,39 @@ button.text.danger:hover {
   font-size: 0.9rem;
 }
 
+
 .preview-panel {
   gap: 16px;
+}
+
+.preview-columns {
+  display: grid;
+  gap: 20px;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+}
+
+.preview-column {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.preview-column-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
 }
 
 .preview-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 12px;
+}
+
+.preview-column .preview-actions {
+  justify-content: flex-end;
 }
 
 .preview-actions button {
@@ -895,6 +941,26 @@ button.text.danger:hover {
   border: 1px solid var(--border);
   background: #fff;
   font-size: 0.85rem;
+}
+
+.five-point-section {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  border-top: 1px solid var(--border);
+  padding-top: 20px;
+}
+
+.five-point-header {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.five-point-container {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
 }
 
 .frequency-word {

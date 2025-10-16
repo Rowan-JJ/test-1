@@ -166,7 +166,9 @@
           <span data-type="minor"><i></i>小语种词</span>
         </div>
         <p class="hint">拖动关键词滑块到任意 SKU 的标题框中，或单击复制信息。</p>
-        <div class="keyword-list" id="keyword-list"></div>
+        <div class="keyword-scroll">
+          <div class="keyword-list" id="keyword-list"></div>
+        </div>
       </div>
     </section>
 
@@ -178,39 +180,83 @@
 
     <section class="panel preview-panel" id="preview-section">
       <h2>标题与搜索词预览区</h2>
-      <p class="hint">点击批量导出按钮后，可在此查看全部标题与搜索词，统计词频或交给 AI 调整。</p>
-      <div class="preview-actions">
-        <button id="preview-copy" class="secondary" type="button">复制预览内容</button>
-        <button id="preview-ai-adjust" class="secondary" type="button">AI 调整</button>
-      </div>
-      <p class="hint" id="preview-empty-hint">暂未生成内容，请先在上方批量导出。</p>
-      <div class="preview-block" id="preview-original-block" hidden>
-        <div class="preview-block-header">
-          <h3>当前内容</h3>
-          <span class="preview-count" id="preview-count"></span>
-        </div>
-        <pre class="preview-text" id="preview-original-text"></pre>
-      </div>
-      <div class="preview-block" id="preview-ai-block" hidden>
-        <div class="preview-block-header">
-          <h3>AI 调整结果</h3>
-          <div class="preview-ai-actions">
-            <button class="secondary" id="preview-export-results" type="button">导出结果</button>
-            <button class="text" id="preview-ai-reset" type="button">清除 AI 结果</button>
+      <p class="hint">使用下方的批量导出按钮汇总全部标题与搜索词，可分别执行复制、词频统计与 AI 审查。</p>
+      <div class="preview-columns">
+        <div class="preview-column" id="title-preview-column">
+          <div class="preview-column-header">
+            <h3>标题预览区</h3>
+            <div class="preview-actions">
+              <button id="title-preview-export" class="secondary bulk-action" type="button">批量导出标题</button>
+              <button id="title-preview-copy" class="secondary" type="button">复制标题</button>
+              <button id="title-preview-ai" class="secondary" type="button">AI 审查标题</button>
+            </div>
+          </div>
+          <p class="hint" id="title-preview-empty">暂未生成标题，请先批量导出。</p>
+          <div class="preview-block" id="title-preview-current" hidden>
+            <div class="preview-block-header">
+              <h4>当前标题</h4>
+              <span class="preview-count" id="title-preview-count"></span>
+            </div>
+            <pre class="preview-text" id="title-preview-text"></pre>
+          </div>
+          <div class="preview-block" id="title-preview-ai-block" hidden>
+            <div class="preview-block-header">
+              <h4>AI 审查结果</h4>
+              <div class="preview-ai-actions">
+                <button class="secondary" id="title-preview-export-results" type="button">导出结果</button>
+                <button class="text" id="title-preview-ai-reset" type="button">清除 AI 结果</button>
+              </div>
+            </div>
+            <p class="hint" id="title-preview-ai-empty">暂无 AI 调整结果，将使用当前内容导出。</p>
+            <pre class="preview-text" id="title-preview-ai-text"></pre>
+          </div>
+          <div class="preview-block" id="title-frequency-block" hidden>
+            <div class="preview-block-header">
+              <h4>词频统计</h4>
+              <div class="preview-frequency-actions">
+                <button class="secondary" id="title-preview-frequency" type="button">生成词频统计</button>
+                <button class="text" id="title-preview-frequency-clear" type="button">清空结果</button>
+              </div>
+            </div>
+            <div class="frequency-list" id="title-preview-frequency-list"></div>
           </div>
         </div>
-        <p class="hint" id="preview-ai-empty">暂无 AI 调整结果，将使用当前内容导出。</p>
-        <pre class="preview-text" id="preview-ai-text"></pre>
-      </div>
-      <div class="preview-block" id="preview-frequency-block" hidden>
-        <div class="preview-block-header">
-          <h3>词频统计</h3>
-          <div class="preview-frequency-actions">
-            <button class="secondary" id="preview-frequency" type="button">生成词频统计</button>
-            <button class="text" id="preview-frequency-close" type="button">清空结果</button>
+        <div class="preview-column" id="search-preview-column">
+          <div class="preview-column-header">
+            <h3>搜索词预览区</h3>
+            <div class="preview-actions">
+              <button id="search-preview-export" class="secondary bulk-action" type="button">批量导出搜索词</button>
+              <button id="search-preview-copy" class="secondary" type="button">复制搜索词</button>
+              <button id="search-preview-ai" class="secondary" type="button">AI 审查搜索词</button>
+            </div>
+          </div>
+          <p class="hint" id="search-preview-empty">暂未生成搜索词，请先批量导出。</p>
+          <div class="preview-block" id="search-preview-current" hidden>
+            <div class="preview-block-header">
+              <h4>当前搜索词</h4>
+              <span class="preview-count" id="search-preview-count"></span>
+            </div>
+            <pre class="preview-text" id="search-preview-text"></pre>
+          </div>
+          <div class="preview-block" id="search-preview-ai-block" hidden>
+            <div class="preview-block-header">
+              <h4>AI 审查结果</h4>
+              <div class="preview-ai-actions">
+                <button class="secondary" id="search-preview-export-results" type="button">导出结果</button>
+                <button class="text" id="search-preview-ai-reset" type="button">清除 AI 结果</button>
+              </div>
+            </div>
+            <p class="hint" id="search-preview-ai-empty">暂无 AI 调整结果，将使用当前内容导出。</p>
+            <pre class="preview-text" id="search-preview-ai-text"></pre>
           </div>
         </div>
-        <div class="frequency-list" id="preview-frequency-list"></div>
+      </div>
+      <div class="five-point-section" id="five-point-section">
+        <div class="five-point-header">
+          <h3>五点生成</h3>
+          <p class="hint">为每个 SPU 设置提示词，调用 DeepSeek 生成英文五点描述。</p>
+        </div>
+        <div class="five-point-container" id="five-point-container"></div>
       </div>
     </section>
   </main>
@@ -262,7 +308,8 @@
           <button class="text danger delete-spu" type="button">删除 SPU</button>
         </div>
       </div>
-      <p class="hint formula-hint">公式：核心词1 + 特征词1 + 核心词2 + 特征词2 + 特征词3 + 场景词</p>
+      <p class="hint formula-hint">标题公式：品牌词（Popilush） + 核心词1 + 特征词1 + 核心词2 + 特征词2 + 场景词1 + 场景词2 + 尺码信息（Color Size）</p>
+      <p class="hint formula-hint">搜索词公式：20% 核心词 + 20% 特征词 + 40% 场景词 + 20% 小语种词</p>
       <div class="subtitle-block">
         <div class="subtitle-header">
           <h4>副标题</h4>
@@ -284,25 +331,28 @@
           </div>
         </div>
       </details>
-      <details class="five-point-panel">
-        <summary>
-          <span>五点生成（默认输出英文）</span>
-          <span class="summary-hint">点击展开 / 收起</span>
-        </summary>
-        <div class="five-point-body">
-          <div class="field-group">
-            <label>提示词</label>
-            <textarea class="five-point-prompt" rows="3" placeholder="输入要传递给 DeepSeek 的提示词"></textarea>
-          </div>
-          <button class="primary generate-five" type="button">生成五点</button>
-          <div class="five-point-output" hidden>
-            <h4>五点文案</h4>
-            <pre class="five-point-text"></pre>
-          </div>
-        </div>
-      </details>
       <div class="sku-list"></div>
     </div>
+  </template>
+
+  <template id="five-point-template">
+    <details class="five-point-panel" data-spu-id="">
+      <summary>
+        <span class="five-point-title"></span>
+        <span class="summary-hint">点击展开 / 收起</span>
+      </summary>
+      <div class="five-point-body">
+        <div class="field-group">
+          <label>提示词</label>
+          <textarea class="five-point-prompt" rows="3" placeholder="输入要传递给 DeepSeek 的提示词"></textarea>
+        </div>
+        <button class="primary generate-five" type="button">生成五点</button>
+        <div class="five-point-output" hidden>
+          <h4>五点文案</h4>
+          <pre class="five-point-text"></pre>
+        </div>
+      </div>
+    </details>
   </template>
 
   <template id="keyword-pill-template">
