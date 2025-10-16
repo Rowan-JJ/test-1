@@ -35,6 +35,19 @@ const DEFAULT_SUBTITLE_LIMIT = 125;
 const DEFAULT_SEARCH_TERM_LIMIT = 250;
 const DEFAULT_API_KEY = 'sk-fae9b9725466489fad43c0589e6841cf';
 
+const COLOR_CODE_MAP = {
+  RD: 'Red',
+  BK: 'Black',
+  YH: 'Leopard Print',
+  GR: 'Green',
+  PK: 'Pink',
+  BN: 'Brown',
+  WH: 'White',
+};
+
+const KNOWN_SIZE_CODES = ['XS', 'S', 'M', 'L', 'XL', 'XXL', '3XL'];
+const SIZE_CODE_SET = new Set(KNOWN_SIZE_CODES);
+
 const SEARCH_TYPE_PERCENTAGES = {
   core: 0.2,
   feature: 0.2,
@@ -60,6 +73,77 @@ const FIXED_KEYWORDS = {
     fixed: true,
   },
 };
+
+function sanitizeKeywordIdSegment(text) {
+  return (text || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/_{2,}/g, '_')
+    .replace(/^_+|_+$/g, '');
+}
+
+function parseSkuComponents(raw) {
+  const value = (raw || '').toString().trim();
+  if (!value) {
+    return { colorCode: null, featureCode: null, sizeCode: null };
+  }
+  const upper = value.toUpperCase();
+  const parts = upper.split(/[-_]/).filter(Boolean);
+  let colorCode = null;
+  let featureCode = null;
+  let sizeCode = null;
+
+  if (parts.length >= 3) {
+    sizeCode = parts[parts.length - 1];
+    featureCode = parts[parts.length - 2];
+    colorCode = parts[parts.length - 3];
+  }
+
+  if (!colorCode || !featureCode || !sizeCode) {
+    const match = upper.match(/([A-Z]{2})[-_]?(\d{2})[-_]?([A-Z0-9]{1,3})$/);
+    if (match) {
+      colorCode = colorCode || match[1];
+      featureCode = featureCode || match[2];
+      sizeCode = sizeCode || match[3];
+    }
+  }
+
+  return { colorCode, featureCode, sizeCode };
+}
+
+function extractKeywordTokens(text) {
+  const rawTokens = (text || '')
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((token) => token && token.length > 2);
+  const tokens = new Set();
+  for (const token of rawTokens) {
+    tokens.add(token);
+    if (token.endsWith('ies') && token.length > 3) {
+      tokens.add(`${token.slice(0, -3)}y`);
+    } else if (token.endsWith('es') && token.length > 3 && !token.endsWith('ses')) {
+      const base = token.slice(0, -2);
+      tokens.add(base);
+      tokens.add(`${base}e`);
+    } else if (token.endsWith('s') && token.length > 3 && !token.endsWith('ss')) {
+      tokens.add(token.slice(0, -1));
+    }
+  }
+  return Array.from(tokens);
+}
+
+function keywordsShareCoreRoot(keywordA, keywordB) {
+  if (!keywordA || !keywordB) return false;
+  const tokensA = new Set(extractKeywordTokens(keywordA.text));
+  const tokensB = new Set(extractKeywordTokens(keywordB.text));
+  if (!tokensA.size || !tokensB.size) return false;
+  for (const token of tokensA) {
+    if (tokensB.has(token)) {
+      return true;
+    }
+  }
+  return false;
+}
 
 function createPreviewBucket({ enableFrequency = false } = {}) {
   return {
@@ -95,6 +179,85 @@ const state = {
     search: 'simple',
   },
 };
+
+function normalizeRank(value) {
+  return (value || '').toString().trim().toUpperCase();
+}
+
+function enforceCoreRankRequirement(keyword) {
+  if (!keyword) {
+    return { changed: false, rank: '' };
+  }
+  const normalizedRank = normalizeRank(keyword.rank);
+  const isRankA = normalizedRank.startsWith('A') && normalizedRank.length >= 1;
+  if (keyword.type === 'core' && !isRankA) {
+    keyword.type = 'feature';
+    keyword.color =
+      state.keywordTypeColors.feature || DEFAULT_TYPE_COLORS.feature || keyword.color;
+    return { changed: true, rank: normalizedRank };
+  }
+  return { changed: false, rank: normalizedRank };
+}
+
+function ensureSkuColorSize(sku) {
+  if (!sku) return null;
+  const parsed = parseSkuComponents(sku.name);
+  const mappedColor = parsed.colorCode ? COLOR_CODE_MAP[parsed.colorCode] : null;
+  if (mappedColor) {
+    sku.colorText = mappedColor;
+  }
+  if (!sku.colorText) {
+    const input = prompt(`请输入 SKU ${sku.name || ''} 的颜色（英文）`);
+    if (!input) {
+      return null;
+    }
+    sku.colorText = input.trim();
+  }
+
+  const normalizedSize = parsed.sizeCode ? parsed.sizeCode.toUpperCase() : '';
+  if (normalizedSize && SIZE_CODE_SET.has(normalizedSize)) {
+    sku.sizeText = normalizedSize;
+  }
+  if (!sku.sizeText) {
+    const input = prompt(
+      `请输入 SKU ${sku.name || ''} 的尺码（可选：${KNOWN_SIZE_CODES.join('/')})`,
+    );
+    if (!input) {
+      return null;
+    }
+    sku.sizeText = input.trim().toUpperCase();
+  }
+
+  if (!sku.colorText || !sku.sizeText) {
+    return null;
+  }
+
+  return { color: sku.colorText, size: sku.sizeText };
+}
+
+function ensureColorSizeKeywordForSku(sku) {
+  const resolved = ensureSkuColorSize(sku);
+  if (!resolved) return null;
+  const { color, size } = resolved;
+  if (!color || !size) return null;
+  const id = `__color_${sanitizeKeywordIdSegment(color)}__size_${sanitizeKeywordIdSegment(size)}`;
+  const text = `Color ${color} Size ${size}`;
+  const keywordData = {
+    id,
+    text,
+    type: 'feature',
+    color: state.keywordTypeColors.feature || DEFAULT_TYPE_COLORS.feature,
+    virtual: true,
+    heatValue: Number.NEGATIVE_INFINITY,
+  };
+  const existing = state.keywords.get(id);
+  if (existing) {
+    Object.assign(existing, keywordData);
+    return existing;
+  }
+  state.keywords.set(id, keywordData);
+  return keywordData;
+}
 
 let keywordCounter = 0;
 let spuCounter = 0;
@@ -387,9 +550,15 @@ function createKeyword({ text, heat, rank, color, type }) {
     color: color || state.keywordTypeColors[finalType] || DEFAULT_TYPE_COLORS[finalType] || DEFAULT_TYPE_COLORS.core,
     heatValue: parseHeatValue(heat),
   };
+  const enforcement = enforceCoreRankRequirement(keyword);
+  if (enforcement.changed) {
+    keyword.color =
+      state.keywordTypeColors[keyword.type] || DEFAULT_TYPE_COLORS[keyword.type] || keyword.color;
+  }
   state.keywords.set(id, keyword);
   renderKeywordLibrary();
   renderSpuList();
+  return keyword;
 }
 
 function renderKeywordLibrary() {
@@ -581,10 +750,19 @@ function openKeywordEditor(keywordId) {
         state.keywordTypeColors[newType] ||
         DEFAULT_TYPE_COLORS[newType] ||
         keyword.color;
+      const enforcement = enforceCoreRankRequirement(keyword);
+      if (enforcement.changed) {
+        keyword.color =
+          state.keywordTypeColors[keyword.type] ||
+          DEFAULT_TYPE_COLORS[keyword.type] ||
+          keyword.color;
+      }
       close();
       renderKeywordLibrary();
       renderSpuList();
-      showToast('关键词信息已更新');
+      showToast(
+        enforcement.changed ? '排名非 A 的词已自动归类为特征词' : '关键词信息已更新',
+      );
     });
   }
 
@@ -628,6 +806,12 @@ function buildTextFromKeywordIds(keywordIds) {
     .map((keywordId) => state.keywords.get(keywordId)?.text)
     .filter(Boolean)
     .join(' ');
+}
+
+function computeTitleCandidateLength(ids, { isSubtitle, colorKeywordId } = {}) {
+  const trailingIds = !isSubtitle && colorKeywordId ? [colorKeywordId] : [];
+  const finalIds = trailingIds.length ? ids.concat(trailingIds) : ids;
+  return buildTextFromKeywordIds(finalIds).length;
 }
 
 function updateDropzoneMeta(dropzone, keywordIds) {
@@ -851,6 +1035,7 @@ async function classifyPendingKeywords(items) {
   const prompt =
     `请根据以下规则将关键词归类为核心词(core)、特征词(feature)、场景词(scene)或小语种词(minor)：\n` +
     `- 核心词(core)：能够直接描述产品品类的关键词或短语，通常较短，不含颜色、材质、功能等额外修饰，如 "bodysuit for women"。\n` +
+    `- 核心词必须满足搜索排名为 A，若排名不是 A（包括缺失）请归类为特征词(feature)。\n` +
     `- 特征词(feature)：描述功能、材质、颜色或卖点的长尾词，可能包含核心词，如 "long sleeve bodysuits"；只要出现额外的修饰信息，即使包含核心词也判定为特征词。\n` +
     `- 场景词(scene)：描绘使用场景、对象、节日或搭配场景的词语。\n` +
     `- 小语种词(minor)：除中文和英文外的其他语言词汇。\n` +
@@ -1533,6 +1718,163 @@ function bindSpuEvents(card, spuId) {
   };
 }
 
+function expandTitleCombination({
+  ids,
+  words,
+  remainingFeatures,
+  remainingScenes,
+  limit,
+  isSubtitle,
+  colorKeywordId,
+}) {
+  const featurePool = (remainingFeatures || []).slice();
+  const scenePool = (remainingScenes || []).slice();
+  const usedIds = new Set(ids);
+  let currentIds = ids.slice();
+  let currentWords = words.slice();
+  const heatOf = (keyword) => {
+    const value = getKeywordHeatValue(keyword);
+    return Number.isFinite(value) ? value : -1000;
+  };
+  let currentHeat = currentWords.reduce((total, keyword) => total + heatOf(keyword), 0);
+  let currentLength = computeTitleCandidateLength(currentIds, { isSubtitle, colorKeywordId });
+
+  const evaluateList = (list, type) => {
+    let best = null;
+    for (let index = 0; index < list.length; index += 1) {
+      const keyword = list[index];
+      if (!keyword || usedIds.has(keyword.id)) continue;
+      const nextIds = currentIds.concat(keyword.id);
+      const nextLength = computeTitleCandidateLength(nextIds, { isSubtitle, colorKeywordId });
+      if (nextLength > limit) continue;
+      const nextHeat = currentHeat + heatOf(keyword);
+      if (
+        !best ||
+        nextLength > best.length ||
+        (nextLength === best.length && nextHeat > best.heat)
+      ) {
+        best = { type, index, keyword, ids: nextIds, length: nextLength, heat: nextHeat };
+      }
+    }
+    return best;
+  };
+
+  while (true) {
+    const featureCandidate = evaluateList(featurePool, 'feature');
+    const sceneCandidate = evaluateList(scenePool, 'scene');
+    let bestCandidate = null;
+    if (featureCandidate && sceneCandidate) {
+      if (
+        featureCandidate.length > sceneCandidate.length ||
+        (featureCandidate.length === sceneCandidate.length &&
+          featureCandidate.heat >= sceneCandidate.heat)
+      ) {
+        bestCandidate = featureCandidate;
+      } else {
+        bestCandidate = sceneCandidate;
+      }
+    } else {
+      bestCandidate = featureCandidate || sceneCandidate;
+    }
+
+    if (!bestCandidate) break;
+
+    currentIds = bestCandidate.ids;
+    currentLength = bestCandidate.length;
+    currentHeat = bestCandidate.heat;
+    usedIds.add(bestCandidate.keyword.id);
+    currentWords.push(bestCandidate.keyword);
+
+    if (bestCandidate.type === 'feature') {
+      featurePool.splice(bestCandidate.index, 1);
+    } else {
+      scenePool.splice(bestCandidate.index, 1);
+    }
+  }
+
+  return {
+    ids: currentIds.slice(),
+    words: currentWords.slice(),
+    length: currentLength,
+    heat: currentHeat,
+  };
+}
+
+function selectKeywordsForTarget({ pools, usage, limit, isSubtitle, colorKeywordId }) {
+  const MAX_CORE_CANDIDATES = 6;
+  const MAX_FEATURE_CANDIDATES = 10;
+  const MAX_SCENE_CANDIDATES = 8;
+
+  const comparator = (a, b) => {
+    const usageDiff = (usage.get(a.id) || 0) - (usage.get(b.id) || 0);
+    if (usageDiff !== 0) return usageDiff;
+    const heatDiff = getKeywordHeatValue(b) - getKeywordHeatValue(a);
+    if (heatDiff !== 0) return heatDiff;
+    return a.text.localeCompare(b.text, 'zh-Hans-CN');
+  };
+
+  const coreList = (pools.core || []).slice().sort(comparator).slice(0, MAX_CORE_CANDIDATES);
+  const featureList = (pools.feature || []).slice().sort(comparator).slice(0, MAX_FEATURE_CANDIDATES);
+  const sceneList = (pools.scene || []).slice().sort(comparator).slice(0, MAX_SCENE_CANDIDATES);
+
+  if (coreList.length < 2 || featureList.length < 2 || sceneList.length < 1) {
+    return null;
+  }
+
+  const brandId = FIXED_KEYWORDS.brand.id;
+  let best = null;
+
+  for (let i = 0; i < coreList.length; i += 1) {
+    const coreA = coreList[i];
+    for (let j = 0; j < coreList.length; j += 1) {
+      if (j === i) continue;
+      const coreB = coreList[j];
+      if (keywordsShareCoreRoot(coreA, coreB)) continue;
+      for (let f1 = 0; f1 < featureList.length; f1 += 1) {
+        const feature1 = featureList[f1];
+        const featurePoolAfterF1 = featureList.filter((_, index) => index !== f1);
+        if (!featurePoolAfterF1.length) continue;
+        for (let f2 = 0; f2 < featurePoolAfterF1.length; f2 += 1) {
+          const feature2 = featurePoolAfterF1[f2];
+          const baseIds = [brandId, coreA.id, feature1.id, coreB.id, feature2.id];
+          const baseWords = [coreA, feature1, coreB, feature2];
+          const remainingFeatures = featurePoolAfterF1.filter((_, index) => index !== f2);
+          for (let s = 0; s < sceneList.length; s += 1) {
+            const scene1 = sceneList[s];
+            const ids = baseIds.concat(scene1.id);
+            const words = baseWords.concat(scene1);
+            const baseLength = computeTitleCandidateLength(ids, { isSubtitle, colorKeywordId });
+            if (baseLength > limit) continue;
+            const remainingScenes = sceneList.filter((_, index) => index !== s);
+            const expanded = expandTitleCombination({
+              ids,
+              words,
+              remainingFeatures,
+              remainingScenes,
+              limit,
+              isSubtitle,
+              colorKeywordId,
+            });
+            if (!expanded) continue;
+            if (
+              !best ||
+              expanded.length > best.length ||
+              (expanded.length === best.length && expanded.heat > best.heat)
+            ) {
+              best = expanded;
+            }
+          }
+        }
+      }
+    }
+  }
+
+  if (!best) return null;
+  const finalLength = computeTitleCandidateLength(best.ids, { isSubtitle, colorKeywordId });
+  const finalIds = !isSubtitle && colorKeywordId ? best.ids.concat(colorKeywordId) : best.ids.slice();
+  return { ids: finalIds, words: best.words.slice(), length: finalLength, heat: best.heat };
+}
+
 function autoGenerateTitles(spuId) {
   const spu = state.spus.get(spuId);
   if (!spu) return;
@@ -1561,20 +1903,12 @@ function autoGenerateTitles(spuId) {
     showToast('请至少添加 2 个特征词', true);
     return;
   }
-  if ((pools.scene || []).length < 2) {
-    showToast('请至少添加 2 个场景词', true);
+  if ((pools.scene || []).length < 1) {
+    showToast('请至少添加 1 个场景词', true);
     return;
   }
 
   const usage = computeSpuKeywordUsage(spu);
-  const comparator = (a, b) => {
-    const usageDiff = (usage.get(a.id) || 0) - (usage.get(b.id) || 0);
-    if (usageDiff !== 0) return usageDiff;
-    const heatDiff = getKeywordHeatValue(b) - getKeywordHeatValue(a);
-    if (heatDiff !== 0) return heatDiff;
-    return a.text.localeCompare(b.text, 'zh-Hans-CN');
-  };
-
   const targets = [
     { type: 'subtitle', apply: (keywords) => { spu.subtitleKeywords = keywords; } },
     ...spu.skus.map((sku) => ({
@@ -1587,50 +1921,27 @@ function autoGenerateTitles(spuId) {
   ];
 
   const assignments = [];
-  const MAX_CANDIDATES_PER_TYPE = 5;
-  const brandId = FIXED_KEYWORDS.brand.id;
-  const sizeId = FIXED_KEYWORDS.size.id;
 
   for (const target of targets) {
-    const containerType = target.type === 'subtitle' ? 'subtitle' : 'sku';
-    const limit = getCharacterLimit(containerType);
-
-    const coreList = pools.core.slice().sort(comparator).slice(0, MAX_CANDIDATES_PER_TYPE);
-    const featureList = pools.feature.slice().sort(comparator).slice(0, MAX_CANDIDATES_PER_TYPE);
-    const sceneList = pools.scene.slice().sort(comparator).slice(0, MAX_CANDIDATES_PER_TYPE);
-
-    let combination = null;
-
-    outerCore1: for (let i = 0; i < coreList.length; i += 1) {
-      for (let j = 0; j < coreList.length; j += 1) {
-        if (j === i) continue;
-        for (let f1 = 0; f1 < featureList.length; f1 += 1) {
-          for (let f2 = 0; f2 < featureList.length; f2 += 1) {
-            if (f2 === f1) continue;
-            for (let s1 = 0; s1 < sceneList.length; s1 += 1) {
-              for (let s2 = 0; s2 < sceneList.length; s2 += 1) {
-                if (s2 === s1) continue;
-                const ids = [
-                  brandId,
-                  coreList[i].id,
-                  featureList[f1].id,
-                  coreList[j].id,
-                  featureList[f2].id,
-                  sceneList[s1].id,
-                  sceneList[s2].id,
-                  sizeId,
-                ];
-                const titleText = buildTextFromKeywordIds(ids);
-                if (titleText.length <= limit) {
-                  combination = { ids, words: [coreList[i], coreList[j], featureList[f1], featureList[f2], sceneList[s1], sceneList[s2]] };
-                  break outerCore1;
-                }
-              }
-            }
-          }
-        }
+    const isSubtitle = target.type === 'subtitle';
+    const limit = getCharacterLimit(isSubtitle ? 'subtitle' : 'sku');
+    let colorKeywordId = null;
+    if (!isSubtitle) {
+      const colorKeyword = ensureColorSizeKeywordForSku(target.sku);
+      if (!colorKeyword) {
+        showToast(`请补充 SKU ${target.sku?.name || ''} 的颜色或尺码信息`, true);
+        return;
       }
+      colorKeywordId = colorKeyword.id;
     }
+
+    const combination = selectKeywordsForTarget({
+      pools,
+      usage,
+      limit,
+      isSubtitle,
+      colorKeywordId,
+    });
 
     if (!combination) {
       showToast('未能生成满足字符限制的标题，请调整关键词或提高上限', true);
@@ -1638,7 +1949,6 @@ function autoGenerateTitles(spuId) {
     }
 
     assignments.push(() => target.apply(combination.ids.slice()));
-
     for (const keyword of combination.words) {
       incrementUsage(usage, keyword.id);
     }
@@ -2346,7 +2656,7 @@ keywordForm.addEventListener('submit', (event) => {
   const heat = (formData.get('heat') || '').trim();
   const rank = (formData.get('rank') || '').trim();
   const color = formData.get('color') || state.keywordTypeColors[type] || DEFAULT_TYPE_COLORS[type] || '#4C6EF5';
-  createKeyword({
+  const created = createKeyword({
     text,
     heat,
     rank,
@@ -2354,8 +2664,12 @@ keywordForm.addEventListener('submit', (event) => {
     type,
   });
   keywordForm.reset();
-  keywordTypeSelect.value = type;
-  updateKeywordColorInput(type);
+  const finalType = created?.type || type;
+  keywordTypeSelect.value = finalType;
+  updateKeywordColorInput(finalType);
+  if (created && created.type !== type) {
+    showToast('排名非 A 的词已自动归类为特征词');
+  }
 });
 
 clearLibraryBtn.addEventListener('click', () => {
