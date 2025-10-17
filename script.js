@@ -3123,12 +3123,17 @@ function clearPreviewAi(kind) {
   renderPreview();
 }
 
-function adjustPreviewWithAI(kind) {
+async function adjustPreviewWithAI(kind) {
   const bucket = getPreviewBucket(kind);
   if (!bucket) return;
   const items = bucket.aiItems?.length ? bucket.aiItems : bucket.items;
   if (!items?.length) {
     showToast('请先在上方批量导出内容', true);
+    return;
+  }
+  const apiKey = apiKeyInput.value.trim();
+  if (!apiKey) {
+    alert('请先输入有效的 DeepSeek API Key。');
     return;
   }
   const elements = kind === 'titles' ? titlePreviewElements : searchPreviewElements;
@@ -3138,10 +3143,97 @@ function adjustPreviewWithAI(kind) {
   const originalText = triggerBtn.textContent;
   triggerBtn.textContent = '审查中...';
   try {
-    const processed = items.map((item) => ({
-      ...item,
-      text: reviewEntryText(item.text || '', { kind }),
-    }));
+    const kindLabel = kind === 'titles' ? '标题' : '搜索词';
+    const bannedWords = Array.from(BANNED_AMAZON_WORDS).join(', ');
+    const blockedBrands = Array.from(BRAND_BLACKLIST)
+      .filter((brand) => !BRAND_WHITELIST.has(brand))
+      .join(', ');
+    const payload = items
+      .map((item, index) => {
+        const label = item.label ? `（${item.label}）` : '';
+        const baseText = (item.text || '').toString();
+        return `${index + 1}. id=${item.id}${label}\n内容：${baseText}`;
+      })
+      .join('\n\n');
+
+    const prompt =
+      `请作为亚马逊合规专员审查以下${kindLabel}，按原有顺序逐条返回校正结果。` +
+      '\n- 删除或替换任何超过两次重复的单词（以相同字母序列判断）。' +
+      '\n- 删除陌生品牌词，仅保留品牌 Popilush；如遇以下品牌词必须删除：' +
+      (blockedBrands ? ` ${blockedBrands}。` : '（无额外品牌黑名单）。') +
+      '\n- 删除所有亚马逊违禁词：' +
+      bannedWords +
+      '。' +
+      '\n- 其它词语保持不变，不要改写语序，也不要添加新词。' +
+      '\n- 每条结果请符合格式要求：标题使用英文标题大小写（常见介词可小写），搜索词全部小写。' +
+      '\n- 保留每条的 id，返回 JSON 数组，如 [{"id":"xxx","text":"..."}]。' +
+      '\n- 如果无需修改，也需原样返回对应文本。' +
+      '\n\n待审查列表：\n' +
+      payload;
+
+    const response = await fetch('https://api.deepseek.com/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: 'deepseek-chat',
+        messages: [
+          {
+            role: 'system',
+            content:
+              'You are an Amazon listing compliance assistant. Review provided entries and return JSON array with id/text, preserving order.',
+          },
+          { role: 'user', content: prompt },
+        ],
+        temperature: 0,
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error((await response.text()) || '请求失败');
+    }
+
+    const result = await response.json();
+    const rawContent = result.choices?.[0]?.message?.content?.trim();
+    if (!rawContent) {
+      throw new Error('未获取到有效的返回内容');
+    }
+
+    let parsed;
+    try {
+      parsed = JSON.parse(rawContent);
+    } catch (error) {
+      const match = rawContent.match(/```json([\s\S]*?)```/i);
+      if (match) {
+        parsed = JSON.parse(match[1]);
+      } else {
+        throw error;
+      }
+    }
+
+    if (!Array.isArray(parsed)) {
+      throw new Error('返回格式不是数组');
+    }
+
+    const updates = new Map();
+    for (const entry of parsed) {
+      if (!entry || typeof entry.id !== 'string') continue;
+      const text = typeof entry.text === 'string' ? entry.text.trim() : '';
+      updates.set(entry.id, text);
+    }
+
+    const processed = items.map((item) => {
+      let text = updates.has(item.id) ? updates.get(item.id) : item.text || '';
+      if (kind === 'search') {
+        text = transformSearchText(text);
+      } else {
+        text = transformTitleText(text);
+      }
+      return { ...item, text };
+    });
+
     bucket.aiItems = processed;
     bucket.aiRaw = '';
     if (bucket.enableFrequency) {
