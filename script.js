@@ -968,41 +968,6 @@ function compareKeywordsForLibrary(a, b) {
   return a.text.localeCompare(b.text, 'zh-Hans-CN');
 }
 
-function incrementUsage(map, keywordId, amount = 1) {
-  if (!keywordId) return;
-  map.set(keywordId, (map.get(keywordId) || 0) + amount);
-}
-
-function computeSpuKeywordUsage(spu, { excludeSearchSkuId } = {}) {
-  const usage = new Map();
-  const record = (ids, skuId) => {
-    if (!Array.isArray(ids)) return;
-    if (excludeSearchSkuId && skuId && skuId === excludeSearchSkuId) return;
-    for (const id of ids) {
-      incrementUsage(usage, id);
-    }
-  };
-  record(spu.subtitleKeywords);
-  for (const sku of spu.skus) {
-    record(sku.titleKeywords);
-    record(sku.searchKeywords, sku.id);
-  }
-  return usage;
-}
-
-function computeTitleSignature(ids = []) {
-  if (!Array.isArray(ids) || !ids.length) return '';
-  return ids
-    .filter(
-      (id) =>
-        id &&
-        id !== FIXED_KEYWORDS.brand.id &&
-        !id.startsWith('__color_') &&
-        !id.startsWith('__size_'),
-    )
-    .join('|');
-}
-
 function ensureFixedKeywords() {
   for (const keyword of Object.values(FIXED_KEYWORDS)) {
     if (!state.keywords.has(keyword.id)) {
@@ -2250,188 +2215,154 @@ function bindSpuEvents(card, spuId) {
 }
 
 
-function sortPoolByUsage(list, usage) {
-  if (!Array.isArray(list)) return [];
-  const usageMap = usage instanceof Map ? usage : new Map();
-  return list
-    .slice()
-    .sort((a, b) => {
-      const usageDiff = (usageMap.get(a.id) || 0) - (usageMap.get(b.id) || 0);
-      if (usageDiff !== 0) return usageDiff;
-      const heatDiff = getKeywordHeatValue(b) - getKeywordHeatValue(a);
-      if (heatDiff !== 0) return heatDiff;
-      return a.text.localeCompare(b.text, 'zh-Hans-CN');
-    });
-}
-
-function pickKeywordForSlot(type, pools, context) {
-  const {
-    usage,
-    selectedIds,
-    selectedWords,
-    usedIds,
-    wordCounts,
-    colorText,
-    colorKeywordIds,
-    limit,
-    isSubtitle,
-    avoidRootsWith = [],
-  } = context;
-
-  const pool = pools[type];
-  if (!Array.isArray(pool) || !pool.length) {
-    return null;
-  }
-
-  const sorted = sortPoolByUsage(pool, usage);
-  const strategies = [
-    { allowRootConflict: false, allowBoundaryRepeat: false },
-    { allowRootConflict: true, allowBoundaryRepeat: false },
-    { allowRootConflict: true, allowBoundaryRepeat: true },
-  ];
-
-  for (const strategy of strategies) {
-    for (const keyword of sorted) {
-      if (!keyword) continue;
-      if (usedIds.has(keyword.id)) continue;
-      if (!isSubtitle && colorText && keywordConflictsWithColor(keyword, colorText)) continue;
-      if (
-        !strategy.allowRootConflict &&
-        avoidRootsWith.length &&
-        keywordSharesRootWithList(keyword, avoidRootsWith)
-      ) {
-        continue;
-      }
-      if (
-        !strategy.allowBoundaryRepeat &&
-        selectedWords.length &&
-        keywordsCauseBoundaryDuplicate(selectedWords[selectedWords.length - 1], keyword)
-      ) {
-        continue;
-      }
-      if (keywordWouldExceedWordLimit(keyword, wordCounts, WORD_REPEAT_LIMIT)) continue;
-      const prospectiveIds = selectedIds.concat(keyword.id);
-      const prospectiveLength = computeTitleCandidateLength(prospectiveIds, {
-        isSubtitle,
-        colorKeywordIds,
-      });
-      if (prospectiveLength > limit) continue;
-      return keyword;
-    }
-  }
-
-  return null;
-}
-
 function buildTitleCombination({
   pools,
-  usage,
   limit,
   isSubtitle,
   colorKeywords,
   colorKeywordIds,
   colorText,
 }) {
-  const usageMap = usage instanceof Map ? usage : new Map();
   const brandKeyword = state.keywords.get(FIXED_KEYWORDS.brand.id) || FIXED_KEYWORDS.brand;
   const trailingKeywords = Array.isArray(colorKeywords) ? colorKeywords : [];
-  const selectedIds = [brandKeyword.id];
-  const selectedWords = [];
-  const usedIds = new Set(selectedIds);
-  const wordCounts = new Map();
-  applyKeywordWordCount(brandKeyword, wordCounts);
-  for (const trailing of trailingKeywords) {
-    applyKeywordWordCount(trailing, wordCounts);
-  }
+  const requiredCounts = {
+    core: 2,
+    feature: 3,
+    scene: 2,
+  };
 
   const slotPlan = [
     { type: 'core' },
     { type: 'feature' },
-    { type: 'core', avoidPrevIndexes: [0] },
+    { type: 'core' },
     { type: 'feature' },
     { type: 'feature' },
     { type: 'scene' },
     { type: 'scene' },
   ];
 
-  for (const slot of slotPlan) {
-    const avoidRootsWith = Array.isArray(slot.avoidPrevIndexes)
-      ? slot.avoidPrevIndexes.map((index) => selectedWords[index]).filter(Boolean)
-      : [];
-    const keyword = pickKeywordForSlot(slot.type, pools, {
-      usage: usageMap,
-      selectedIds,
-      selectedWords,
-      usedIds,
-      wordCounts,
-      colorText,
-      colorKeywordIds,
-      trailingKeywords,
-      limit,
-      isSubtitle,
-      avoidRootsWith,
-    });
-    if (!keyword) {
-      return null;
+  const slotGroups = slotPlan.reduce((groups, slot, index) => {
+    if (!groups[slot.type]) {
+      groups[slot.type] = [];
     }
-    selectedWords.push(keyword);
-    selectedIds.push(keyword.id);
-    usedIds.add(keyword.id);
-    applyKeywordWordCount(keyword, wordCounts);
-    incrementUsage(usageMap, keyword.id);
+    groups[slot.type].push(index);
+    return groups;
+  }, {});
+
+  const baseWordCounts = new Map();
+  applyKeywordWordCount(brandKeyword, baseWordCounts);
+  for (const trailing of trailingKeywords) {
+    applyKeywordWordCount(trailing, baseWordCounts);
   }
 
-  const extraOrder = ['feature', 'scene'];
-  let additions = 0;
-  const MAX_EXTRAS = 6;
-  while (additions < MAX_EXTRAS) {
-    let added = false;
-    for (const type of extraOrder) {
-      const keyword = pickKeywordForSlot(type, pools, {
-        usage: usageMap,
-        selectedIds,
-        selectedWords,
-        usedIds,
-        wordCounts,
-        colorText,
-        colorKeywordIds,
-        trailingKeywords,
-        limit,
-        isSubtitle,
-      });
-      if (!keyword) {
-        continue;
+  const MAX_ATTEMPTS = 24;
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
+    const selections = {};
+    let selectionFailed = false;
+
+    for (const [type, count] of Object.entries(requiredCounts)) {
+      const pool = pools[type];
+      if (!Array.isArray(pool) || pool.length < count) {
+        return null;
       }
+      const shuffled = shuffle(pool);
+      const chosen = [];
+      for (const keyword of shuffled) {
+        if (chosen.length >= count) break;
+        if (!keyword || chosen.some((item) => item.id === keyword.id)) continue;
+        if (!isSubtitle && colorText && keywordConflictsWithColor(keyword, colorText)) continue;
+        chosen.push(keyword);
+      }
+      if (chosen.length < count) {
+        selectionFailed = true;
+        break;
+      }
+      selections[type] = chosen
+        .slice()
+        .sort((a, b) => {
+          const heatDiff = getKeywordHeatValue(b) - getKeywordHeatValue(a);
+          if (heatDiff !== 0) return heatDiff;
+          return a.text.localeCompare(b.text, 'zh-Hans-CN');
+        });
+    }
+
+    if (selectionFailed) {
+      continue;
+    }
+
+    const selectedIds = [brandKeyword.id];
+    const selectedWords = [];
+    const usedIds = new Set(selectedIds);
+    const wordCounts = new Map(baseWordCounts);
+    const typeCursors = { core: 0, feature: 0, scene: 0 };
+
+    let invalid = false;
+    for (const slot of slotPlan) {
+      const list = selections[slot.type];
+      const cursor = typeCursors[slot.type] || 0;
+      const keyword = list?.[cursor];
+      typeCursors[slot.type] = cursor + 1;
+      if (!keyword || usedIds.has(keyword.id)) {
+        invalid = true;
+        break;
+      }
+      if (keywordWouldExceedWordLimit(keyword, wordCounts, WORD_REPEAT_LIMIT)) {
+        invalid = true;
+        break;
+      }
+      if (selectedWords.length && keywordsCauseBoundaryDuplicate(selectedWords[selectedWords.length - 1], keyword)) {
+        invalid = true;
+        break;
+      }
+
+      const prospectiveIds = selectedIds.concat(keyword.id);
+      const prospectiveLength = computeTitleCandidateLength(prospectiveIds, {
+        isSubtitle,
+        colorKeywordIds,
+      });
+      if (prospectiveLength > limit) {
+        invalid = true;
+        break;
+      }
+
       selectedWords.push(keyword);
       selectedIds.push(keyword.id);
       usedIds.add(keyword.id);
       applyKeywordWordCount(keyword, wordCounts);
-      incrementUsage(usageMap, keyword.id);
-      additions += 1;
-      added = true;
-      break;
     }
-    if (!added) {
-      break;
+
+    if (invalid) {
+      continue;
     }
+
+    const coreIndexes = slotGroups.core || [];
+    const coreWords = coreIndexes.map((index) => selectedWords[index]).filter(Boolean);
+    if (hasRootOverlap(coreWords)) {
+      continue;
+    }
+
+    if (hasEdgeDuplicates(selectedWords)) {
+      continue;
+    }
+
+    const finalLength = computeTitleCandidateLength(selectedIds, {
+      isSubtitle,
+      colorKeywordIds,
+    });
+    if (finalLength > limit) {
+      continue;
+    }
+
+    const heat = selectedWords.reduce((total, keyword) => total + getKeywordHeatValue(keyword), 0);
+    return {
+      ids: selectedIds,
+      words: selectedWords,
+      length: finalLength,
+      heat,
+    };
   }
 
-  const finalLength = computeTitleCandidateLength(selectedIds, {
-    isSubtitle,
-    colorKeywordIds,
-  });
-  if (finalLength > limit) {
-    return null;
-  }
-
-  const heat = selectedWords.reduce((total, keyword) => total + getKeywordHeatValue(keyword), 0);
-  return {
-    ids: selectedIds,
-    words: selectedWords,
-    length: finalLength,
-    heat,
-    usage: usageMap,
-  };
+  return null;
 }
 
 async function autoGenerateTitles(spuId) {
@@ -2467,7 +2398,6 @@ async function autoGenerateTitles(spuId) {
     return;
   }
 
-  const usage = computeSpuKeywordUsage(spu);
   const targets = [
     { type: 'subtitle', apply: (keywords) => { spu.subtitleKeywords = keywords; } },
     ...spu.skus.map((sku) => ({
@@ -2480,7 +2410,6 @@ async function autoGenerateTitles(spuId) {
   ];
 
   const assignments = [];
-  const seenSignatures = new Set();
 
   for (const target of targets) {
     const isSubtitle = target.type === 'subtitle';
@@ -2501,14 +2430,11 @@ async function autoGenerateTitles(spuId) {
     }
 
     let combination = null;
-    let signature = '';
-    const MAX_ATTEMPTS = 6;
+    const MAX_ATTEMPTS = 24;
 
     for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
-      const attemptUsage = new Map(usage);
       const candidate = buildTitleCombination({
         pools,
-        usage: attemptUsage,
         limit,
         isSubtitle,
         colorKeywords,
@@ -2516,33 +2442,15 @@ async function autoGenerateTitles(spuId) {
         colorText,
       });
       if (!candidate) {
-        break;
-      }
-      const candidateSignature = computeTitleSignature(candidate.ids);
-      if (!isSubtitle && candidateSignature && seenSignatures.has(candidateSignature)) {
-        for (const keyword of candidate.words) {
-          incrementUsage(usage, keyword.id, 1);
-        }
         continue;
       }
-
       combination = candidate;
-      signature = candidateSignature;
-
-      usage.clear();
-      for (const [key, value] of attemptUsage.entries()) {
-        usage.set(key, value);
-      }
       break;
     }
 
     if (!combination) {
       showToast('未能生成满足要求的标题，请增加词库关键词或调整限制', true);
       return;
-    }
-
-    if (!isSubtitle && signature) {
-      seenSignatures.add(signature);
     }
 
     const finalIds = !isSubtitle && colorKeywordIds.length
@@ -2609,21 +2517,23 @@ async function generateSearchTerms(spuId, skuId, options = {}) {
     return false;
   }
 
-  const usage = computeSpuKeywordUsage(spu, { excludeSearchSkuId: sku.id });
-
-  const comparator = (a, b) => {
-    const usageDiff = (usage.get(a.id) || 0) - (usage.get(b.id) || 0);
-    if (usageDiff !== 0) return usageDiff;
-    const heatDiff = getKeywordHeatValue(b) - getKeywordHeatValue(a);
-    if (heatDiff !== 0) return heatDiff;
-    return a.text.localeCompare(b.text, 'zh-Hans-CN');
-  };
-
   const limit = getSearchLimit();
   const selected = [];
   const selectedKeywords = [];
   const selectedSet = new Set();
   const wordCounts = new Map();
+
+  const heatComparator = (a, b) => {
+    const heatDiff = getKeywordHeatValue(b) - getKeywordHeatValue(a);
+    if (heatDiff !== 0) return heatDiff;
+    return a.text.localeCompare(b.text, 'zh-Hans-CN');
+  };
+
+  const poolQueues = {};
+  for (const [type, list] of Object.entries(pools)) {
+    if (!Array.isArray(list) || !list.length) continue;
+    poolQueues[type] = list.slice().sort(heatComparator);
+  }
 
   const tryAddKeyword = (keyword, { allowEdgeRepeat = false } = {}) => {
     if (!keyword || selectedSet.has(keyword.id)) return false;
@@ -2641,29 +2551,27 @@ async function generateSearchTerms(spuId, skuId, options = {}) {
     selected.push(keyword.id);
     selectedKeywords.push(keyword);
     selectedSet.add(keyword.id);
-    incrementUsage(usage, keyword.id);
     applyKeywordWordCount(keyword, wordCounts);
     return true;
   };
 
-  const pattern = (SEARCH_TYPE_PATTERN.length ? SEARCH_TYPE_PATTERN : Object.keys(pools)).filter(
-    (type) => pools[type]?.length,
+  const pattern = (SEARCH_TYPE_PATTERN.length ? SEARCH_TYPE_PATTERN : Object.keys(poolQueues)).filter(
+    (type) => poolQueues[type]?.length,
   );
   let patternIndex = 0;
   let idleSteps = 0;
   const maxIdle = Math.max(pattern.length * 3, 12);
 
-  const hasRemainingPool = () => Object.values(pools).some((pool) => pool && pool.length);
+  const hasRemainingPool = () => Object.values(poolQueues).some((pool) => pool && pool.length);
 
   while (pattern.length && hasRemainingPool() && idleSteps < maxIdle) {
     const type = pattern[patternIndex % pattern.length];
     patternIndex += 1;
-    const pool = pools[type];
+    const pool = poolQueues[type];
     if (!pool || !pool.length) {
       idleSteps += 1;
       continue;
     }
-    pool.sort(comparator);
     let added = false;
     for (let i = 0; i < pool.length; i += 1) {
       const keyword = pool[i];
@@ -2697,9 +2605,9 @@ async function generateSearchTerms(spuId, skuId, options = {}) {
     return false;
   }
 
-  const remainingCandidates = Object.values(pools)
+  const remainingCandidates = Object.values(poolQueues)
     .flat()
-    .sort(comparator);
+    .sort(heatComparator);
   for (const keyword of remainingCandidates) {
     if (tryAddKeyword(keyword)) {
       continue;
@@ -2707,7 +2615,44 @@ async function generateSearchTerms(spuId, skuId, options = {}) {
     tryAddKeyword(keyword, { allowEdgeRepeat: true });
   }
 
-  sku.searchKeywords = selected;
+  const orderedKeywords = selectedKeywords.slice().sort(heatComparator);
+  const adjustForEdges = (list) => {
+    const result = list.slice();
+    const maxPasses = Math.max(1, result.length * 2);
+    for (let pass = 0; pass < maxPasses; pass += 1) {
+      let adjusted = false;
+      for (let i = 1; i < result.length; i += 1) {
+        if (!keywordsCauseBoundaryDuplicate(result[i - 1], result[i])) continue;
+        const [moved] = result.splice(i, 1);
+        result.push(moved);
+        adjusted = true;
+        break;
+      }
+      if (!adjusted) {
+        break;
+      }
+    }
+    return result;
+  };
+
+  let finalKeywords = adjustForEdges(orderedKeywords);
+  let finalIds = finalKeywords.map((item) => item.id);
+  let finalText = buildTextFromKeywordIds(finalIds);
+
+  while (finalKeywords.length && finalText.length > limit) {
+    finalKeywords.pop();
+    finalIds = finalKeywords.map((item) => item.id);
+    finalText = buildTextFromKeywordIds(finalIds);
+  }
+
+  if (!finalKeywords.length) {
+    if (!options.silent) {
+      showToast('未能在字符限制内生成搜索词，请调整限制或关键词', true);
+    }
+    return false;
+  }
+
+  sku.searchKeywords = finalIds;
   if (!options.skipRender) {
     renderSpu(spuId);
   }
