@@ -43,6 +43,7 @@ const COLOR_CODE_MAP = {
   PK: 'Pink',
   BN: 'Brown',
   WH: 'White',
+  SK: 'Skin',
 };
 
 const KNOWN_SIZE_CODES = ['XS', 'S', 'M', 'L', 'XL', 'XXL', '3XL'];
@@ -56,6 +57,7 @@ const COLOR_KEY_ALIASES = {
   brown: ['brown', 'chocolate'],
   white: ['white'],
   'leopard print': ['leopard print', 'leopard'],
+  skin: ['skin'],
 };
 
 const COLOR_LABEL_TO_KEY = Object.entries(COLOR_KEY_ALIASES).reduce((map, [key, aliases]) => {
@@ -2347,6 +2349,8 @@ function buildTitleCombination({
     { type: 'feature' },
     { type: 'core', avoidPrevIndexes: [0] },
     { type: 'feature' },
+    { type: 'feature' },
+    { type: 'scene' },
     { type: 'scene' },
   ];
 
@@ -2379,7 +2383,7 @@ function buildTitleCombination({
 
   const extraOrder = ['feature', 'scene'];
   let additions = 0;
-  const MAX_EXTRAS = 4;
+  const MAX_EXTRAS = 6;
   while (additions < MAX_EXTRAS) {
     let added = false;
     for (const type of extraOrder) {
@@ -2454,12 +2458,12 @@ async function autoGenerateTitles(spuId) {
     showToast('请至少添加 2 个核心词', true);
     return;
   }
-  if ((pools.feature || []).length < 2) {
-    showToast('请至少添加 2 个特征词', true);
+  if ((pools.feature || []).length < 3) {
+    showToast('请至少添加 3 个特征词', true);
     return;
   }
-  if ((pools.scene || []).length < 1) {
-    showToast('请至少添加 1 个场景词', true);
+  if ((pools.scene || []).length < 2) {
+    showToast('请至少添加 2 个场景词', true);
     return;
   }
 
@@ -2533,7 +2537,7 @@ async function autoGenerateTitles(spuId) {
     }
 
     if (!combination) {
-      showToast('未能生成满足字符限制的标题，请调整关键词或提高上限', true);
+      showToast('未能生成满足要求的标题，请增加词库关键词或调整限制', true);
       return;
     }
 
