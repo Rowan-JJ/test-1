@@ -419,8 +419,10 @@ function splitContainerIntoTokens(spuId, containerType, containerId) {
   const spu = state.spus.get(spuId);
   if (!spu) return;
   const collection = getKeywordCollection(spu, containerType, containerId);
+  const label = getContainerLabel(containerType);
+  const labelMid = /[A-Za-z]/.test(label) ? ` ${label} ` : label;
   if (!collection || !collection.length) {
-    showToast('当前标题为空，无法细分', true);
+    showToast(`当前${labelMid}为空，无法细分`, true);
     return;
   }
   const tokenIds = assignTokensToContainer(spuId, containerType, containerId, collection);
@@ -432,7 +434,7 @@ function splitContainerIntoTokens(spuId, containerType, containerId) {
   if (!target) return;
   target.splice(0, target.length, ...tokenIds);
   renderSpu(spuId);
-  showToast('已将标题拆分为单词，可继续微调');
+  showToast(`已将${labelMid}拆分为单词，可继续微调`);
 }
 
 function transferTokenOwnership(keyword, newOwnerKey) {
@@ -1499,7 +1501,8 @@ function openKeywordEditor(keywordId) {
 function renderDropzoneKeywords(dropzone, keywords, optionsFactory) {
   dropzone.querySelectorAll('.keyword-pill').forEach((pill) => pill.remove());
   const placeholder = dropzone.querySelector('.placeholder');
-  const shouldAnnotate = dropzone.dataset.containerType !== 'search';
+  const annotationContainer = dropzone.parentElement?.querySelector('.title-annotation');
+  const shouldAnnotate = Boolean(annotationContainer);
   const splitButton = dropzone.querySelector('.split-words');
   if (splitButton) {
     splitButton.disabled = !keywords || !keywords.length;
@@ -1580,9 +1583,12 @@ function findKeywordMatches(wordEntries) {
   return matches;
 }
 
-function formatWordForDisplay(word, index) {
+function formatWordForDisplay(word, index, { isSearch = false } = {}) {
   const raw = (word || '').trim();
   if (!raw) return '';
+  if (isSearch) {
+    return raw;
+  }
   const upper = raw.toUpperCase();
   if (SIZE_CODE_SET.has(upper) || /^[A-Z0-9]+$/.test(raw)) {
     return upper;
@@ -1683,6 +1689,7 @@ function renderTitleAnnotations(dropzone, keywordIds) {
     return;
   }
 
+  const isSearch = dropzone.dataset.containerType === 'search';
   const matches = findKeywordMatches(entries);
   const matchesByWord = new Map();
   for (const match of matches) {
@@ -1697,7 +1704,7 @@ function renderTitleAnnotations(dropzone, keywordIds) {
   entries.forEach((entry, index) => {
     const span = document.createElement('span');
     span.className = 'annotation-word';
-    span.textContent = formatWordForDisplay(entry.text, index);
+    span.textContent = formatWordForDisplay(entry.text, index, { isSearch });
     const matchList = matchesByWord.get(index) || [];
     if (matchList.length) {
       span.dataset.highlightLevel = String(Math.min(matchList.length, 5));
@@ -1723,6 +1730,16 @@ function getCharacterLimit(containerType) {
     return getSearchLimit();
   }
   return state.settings.skuTitleLimit || DEFAULT_SKU_TITLE_LIMIT;
+}
+
+function getContainerLabel(containerType) {
+  if (containerType === 'subtitle') {
+    return '父标题';
+  }
+  if (containerType === 'search') {
+    return 'Search Term';
+  }
+  return '标题';
 }
 
 function buildTextFromKeywordIds(keywordIds) {
@@ -1788,13 +1805,9 @@ function validateContainerLength(spuId, containerType, containerId, keywords) {
   const limit = getCharacterLimit(containerType);
   const text = buildTextFromKeywordIds(keywords);
   if (text.length > limit) {
-    const label =
-      containerType === 'subtitle'
-        ? '父标题'
-        : containerType === 'search'
-          ? '搜索词'
-          : '标题';
-    showToast(`${label}字符数超过限制（${text.length} / ${limit}）`, true);
+    const label = getContainerLabel(containerType);
+    const labelPrefix = /[A-Za-z]/.test(label) ? `${label} ` : label;
+    showToast(`${labelPrefix}字符数超过限制（${text.length} / ${limit}）`, true);
     return false;
   }
   return true;
@@ -2567,6 +2580,10 @@ function renderSku(spuId, sku) {
       allowRemove: true,
       context: { spuId, containerType: 'search', containerId: sku.id, keywordId },
     }));
+    const searchSplitBtn = searchDropzone.querySelector('.split-words');
+    if (searchSplitBtn) {
+      searchSplitBtn.addEventListener('click', () => splitContainerIntoTokens(spuId, 'search', sku.id));
+    }
   }
 
   if (searchGenerateBtn) {
@@ -3058,7 +3075,7 @@ async function generateSearchTerms(spuId, skuId, options = {}) {
 
   if (!selected.length) {
     if (!options.silent) {
-      showToast('未能在字符限制内生成搜索词，请调整限制或关键词', true);
+      showToast('未能在字符限制内生成 Search Term，请调整限制或关键词', true);
     }
     return false;
   }
@@ -3105,7 +3122,7 @@ async function generateSearchTerms(spuId, skuId, options = {}) {
 
   if (!finalKeywords.length) {
     if (!options.silent) {
-      showToast('未能在字符限制内生成搜索词，请调整限制或关键词', true);
+      showToast('未能在字符限制内生成 Search Term，请调整限制或关键词', true);
     }
     return false;
   }
@@ -3115,7 +3132,7 @@ async function generateSearchTerms(spuId, skuId, options = {}) {
     renderSpu(spuId);
   }
   if (!options.silent) {
-    showToast('已生成搜索词，可继续调整或导出');
+    showToast('已生成 Search Term，可继续调整或导出');
   }
   return true;
 }
@@ -3229,7 +3246,7 @@ function collectSearchPreviewItems() {
       const skuLabel = sku.name || sku.id;
       items.push({
         id: `${spu.id}_${sku.id}_search`,
-        label: `${spuLabel} - ${skuLabel}（搜索词）`,
+        label: `${spuLabel} - ${skuLabel}（Search Term）`,
         text,
         type: 'search',
         spuId: spu.id,
@@ -3560,7 +3577,7 @@ function showSearchFrequencies() {
   }
   bucket.frequencies = frequencies;
   renderPreview();
-  showToast('搜索词词频统计已生成');
+  showToast('Search Term 词频统计已生成');
 }
 
 function clearSearchFrequencies() {
@@ -3601,7 +3618,7 @@ async function adjustPreviewWithAI(kind) {
   const originalText = triggerBtn.textContent;
   triggerBtn.textContent = '审查中...';
   try {
-    const kindLabel = kind === 'titles' ? '标题' : '搜索词';
+    const kindLabel = kind === 'titles' ? '标题' : 'Search Term';
     const bannedWords = Array.from(BANNED_AMAZON_WORDS).join(', ');
     const blockedBrands = Array.from(BRAND_BLACKLIST)
       .filter((brand) => !BRAND_WHITELIST.has(brand))
@@ -3623,7 +3640,7 @@ async function adjustPreviewWithAI(kind) {
       bannedWords +
       '。' +
       '\n- 其它词语保持不变，不要改写语序，也不要添加新词。' +
-      '\n- 每条结果请符合格式要求：标题使用英文标题大小写（常见介词可小写），搜索词全部小写。' +
+      '\n- 每条结果请符合格式要求：标题使用英文标题大小写（常见介词可小写），Search Term 全部小写。' +
       '\n- 保留每条的 id，返回 JSON 数组，如 [{"id":"xxx","text":"..."}]。' +
       '\n- 如果无需修改，也需原样返回对应文本。' +
       '\n\n待审查列表：\n' +
@@ -3735,13 +3752,13 @@ function exportSearchTerms(spuId, skuId) {
   if (!sku) return;
   const text = buildTextFromKeywordIds(sku.searchKeywords);
   if (!text) {
-    alert('该 SKU 的搜索词为空，请先生成或输入。');
+    alert('该 SKU 的 Search Term 为空，请先生成或输入。');
     return;
   }
   navigator.clipboard?.writeText(text).then(() => {
-    showToast('搜索词已复制到剪贴板');
+    showToast('Search Term 已复制到剪贴板');
   }).catch(() => {
-    showToast(`搜索词：${text}`, true);
+    showToast(`Search Term：${text}`, true);
   });
 }
 
@@ -3767,7 +3784,7 @@ async function generateAllSearchTerms(spuId) {
   const spu = state.spus.get(spuId);
   if (!spu) return;
   if (!spu.skus.length) {
-    showToast('暂无 SKU 可生成搜索词', true);
+    showToast('暂无 SKU 可生成 Search Term', true);
     return;
   }
   if (!state.keywords.size) {
@@ -3787,11 +3804,11 @@ async function generateAllSearchTerms(spuId) {
   renderSpu(spuId);
   if (success) {
     const message = failed.length
-      ? `已生成 ${success} 个搜索词，未生成：${failed.join('、')}`
-      : `已为 ${success} 个 SKU 生成搜索词`;
+      ? `已生成 ${success} 个 Search Term，未生成：${failed.join('、')}`
+      : `已为 ${success} 个 SKU 生成 Search Term`;
     showToast(message, failed.length > 0);
   } else {
-    showToast('未能为任何 SKU 生成搜索词，请检查关键词或标题', true);
+    showToast('未能为任何 SKU 生成 Search Term，请检查关键词或标题', true);
   }
 }
 
@@ -4089,14 +4106,14 @@ if (searchPreviewElements.exportBtn) {
   searchPreviewElements.exportBtn.addEventListener('click', () => {
     const items = collectSearchPreviewItems();
     if (!items.length) {
-      showToast('暂无可导出的搜索词', true);
+      showToast('暂无可导出的 Search Term', true);
       return;
     }
     setPreviewItems('search', items);
     const format = getPreviewFormat('search');
     const payload = formatPreviewItems(items, format, 'search');
     navigator.clipboard?.writeText(payload).then(() => {
-      showToast('搜索词已导出并复制到剪贴板');
+      showToast('Search Term 已导出并复制到剪贴板');
     }).catch(() => {
       showToast('复制失败，请手动复制', true);
       alert(payload);
@@ -4108,11 +4125,11 @@ if (searchPreviewElements.copyBtn) {
   searchPreviewElements.copyBtn.addEventListener('click', () => {
     const payload = getPreviewCopyPayload('search');
     if (!payload) {
-      showToast('暂无可复制的搜索词', true);
+      showToast('暂无可复制的 Search Term', true);
       return;
     }
     navigator.clipboard?.writeText(payload).then(() => {
-      showToast('搜索词内容已复制');
+      showToast('Search Term 内容已复制');
     }).catch(() => {
       showToast('复制失败，请手动复制', true);
       alert(payload);
@@ -4132,11 +4149,11 @@ if (searchPreviewElements.aiExport) {
   searchPreviewElements.aiExport.addEventListener('click', () => {
     const payload = getPreviewCopyPayload('search');
     if (!payload) {
-      showToast('暂无可导出的搜索词结果', true);
+      showToast('暂无可导出的 Search Term 结果', true);
       return;
     }
     navigator.clipboard?.writeText(payload).then(() => {
-      showToast('搜索词结果已复制');
+      showToast('Search Term 结果已复制');
     }).catch(() => {
       showToast('复制失败，请手动复制', true);
       alert(payload);

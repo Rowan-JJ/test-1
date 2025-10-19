@@ -24,13 +24,13 @@
       <li><a href="#product-section">商品结构</a></li>
       <li><a href="#keyword-section">关键词管理</a></li>
       <li><a href="#library-section">关键词库</a></li>
-      <li><a href="#spu-section">标题与搜索词</a></li>
+      <li><a href="#spu-section">标题与 Search Term</a></li>
       <li><a href="#preview-section">预览区</a></li>
     </ul>
   </nav>
   <header class="app-header">
     <h1>亚马逊 Listing 标题与五点助手</h1>
-    <p>管理关键词、为不同 SKU 组合标题与搜索词，并使用 DeepSeek 生成五点描述。</p>
+    <p>管理关键词、为不同 SKU 组合标题与 Search Term，并使用 DeepSeek 生成五点描述。</p>
   </header>
 
   <main class="layout">
@@ -74,7 +74,7 @@
             <input id="subtitle-limit" type="number" min="20" max="250" value="125" />
           </div>
           <div class="field-group">
-            <label for="search-limit">搜索词字符上限</label>
+            <label for="search-limit">Search Term 字符上限</label>
             <input id="search-limit" type="number" min="50" max="400" value="250" />
           </div>
         </div>
@@ -193,7 +193,7 @@
           </div>
         </div>
         <div class="library-body" id="library-body">
-          <p class="hint">拖动关键词滑块到任意 SKU 的标题或搜索词框中，或单击复制信息。</p>
+          <p class="hint">拖动关键词滑块到任意 SKU 的标题或 Search Term 框中，或单击复制信息。</p>
           <div class="keyword-scroll">
             <div class="keyword-categories" id="keyword-categories">
               <div class="keyword-category" data-type="core">
@@ -232,13 +232,13 @@
 
     <section class="panel spu-board" id="spu-section">
       <h2>SPU 与 SKU 标题区</h2>
-      <p class="hint">所有生成的标题与搜索词都会在此处纵向排列，便于在同一行查看完整内容。</p>
+      <p class="hint">所有生成的标题与 Search Term 都会在此处纵向排列，便于在同一行查看完整内容。</p>
       <div id="spu-container" class="spu-container"></div>
     </section>
 
     <section class="panel preview-panel" id="preview-section">
-      <h2>标题与搜索词预览区</h2>
-      <p class="hint">使用下方的批量导出按钮汇总全部标题与搜索词，可分别执行复制、词频统计与 AI 审查。</p>
+      <h2>标题与 Search Term 预览区</h2>
+      <p class="hint">使用下方的批量导出按钮汇总全部标题与 Search Term，可分别执行复制、词频统计与 AI 审查。</p>
       <div class="preview-columns">
         <div class="preview-column" id="title-preview-column">
           <div class="preview-column-header">
@@ -291,7 +291,7 @@
         </div>
         <div class="preview-column" id="search-preview-column">
           <div class="preview-column-header">
-            <h3>搜索词预览</h3>
+            <h3>Search Term 预览</h3>
             <div class="preview-actions">
               <div class="preview-format">
                 <label for="search-preview-format">导出方式</label>
@@ -305,10 +305,10 @@
               <button id="search-preview-ai" class="secondary" type="button">AI 审查</button>
             </div>
           </div>
-          <p class="hint" id="search-preview-empty">暂未生成搜索词，请先批量导出。</p>
+          <p class="hint" id="search-preview-empty">暂未生成 Search Term，请先批量导出。</p>
           <div class="preview-block" id="search-preview-current" hidden>
             <div class="preview-block-header">
-              <h4>当前搜索词</h4>
+              <h4>当前 Search Term</h4>
               <span class="preview-count" id="search-preview-count"></span>
             </div>
             <pre class="preview-text" id="search-preview-text"></pre>
@@ -372,10 +372,10 @@
       </div>
       <div class="search-terms-block">
         <div class="search-header">
-          <h5>搜索词</h5>
+          <h5>Search Term</h5>
           <div class="search-actions">
-            <button class="secondary search-generate" type="button">生成搜索词</button>
-            <button class="secondary search-export" type="button">导出搜索词</button>
+            <button class="secondary search-generate" type="button">生成 Search Term</button>
+            <button class="secondary search-export" type="button">导出 Search Term</button>
           </div>
         </div>
         <div
@@ -384,10 +384,15 @@
           data-container-id=""
           data-sku-id=""
         >
-          <p class="placeholder">拖放关键词组成搜索词</p>
+          <p class="placeholder">拖放关键词组成 Search Term</p>
           <div class="dropzone-footer">
+            <button class="text split-words" type="button">逐词细分</button>
             <span class="char-counter" data-counter-type="search">0 / 250</span>
           </div>
+        </div>
+        <div class="title-annotation" hidden>
+          <div class="annotation-text"></div>
+          <div class="annotation-rows"></div>
         </div>
       </div>
     </div>
@@ -400,13 +405,13 @@
         <div class="spu-actions">
           <button class="secondary add-sku" type="button">新增 SKU</button>
           <button class="secondary auto-generate" type="button">自动生成标题</button>
-          <button class="secondary bulk-action bulk-generate-search" type="button">批量生成搜索词</button>
+          <button class="secondary bulk-action bulk-generate-search" type="button">批量生成 Search Term</button>
           <button class="secondary subtitle-export" type="button">导出父标题</button>
           <button class="text danger delete-spu" type="button">删除 SPU</button>
         </div>
       </div>
       <p class="hint formula-hint">标题公式：品牌词（Popilush） + 核心词1 + 特征词1 + 核心词2 + 特征词2 + 特征词3 + 场景词1 + 场景词2 + 颜色词（Color + 色彩） + 尺码词（Size + 尺码）</p>
-      <p class="hint formula-hint">搜索词公式：20% 核心词 + 20% 特征词 + 40% 场景词 + 20% 小语种词</p>
+      <p class="hint formula-hint">Search Term 公式：20% 核心词 + 20% 特征词 + 40% 场景词 + 20% 小语种词</p>
       <div class="subtitle-block">
         <div class="subtitle-header">
           <h4>父标题</h4>
