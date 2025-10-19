@@ -377,7 +377,20 @@ function createTokenFromWord(word, { ownerKey, sourceId }) {
 
 function assignTokensToContainer(spuId, containerType, containerId, keywordIds) {
   const ownerKey = getContainerKey(spuId, containerType, containerId);
-  cleanupTokensForOwner(ownerKey);
+  const preservedTokens = new Set();
+  for (const keywordId of keywordIds || []) {
+    const keyword = state.keywords.get(keywordId);
+    if (keyword && keyword.token) {
+      preservedTokens.add(keyword.id);
+    }
+  }
+  if (state.containerTokens.has(ownerKey)) {
+    for (const tokenId of Array.from(state.containerTokens.get(ownerKey))) {
+      if (!preservedTokens.has(tokenId)) {
+        unregisterTokenKeyword(tokenId);
+      }
+    }
+  }
   const tokenIds = [];
   for (const keywordId of keywordIds || []) {
     const keyword = state.keywords.get(keywordId);

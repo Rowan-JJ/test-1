@@ -537,6 +537,7 @@ button.text.danger:hover {
   color: var(--text-primary);
   border: 1px solid rgba(0, 0, 0, 0.12);
   box-shadow: none;
+  font-size: 0.82rem;
 }
 
 .keyword-pill.token-pill .pill-controls button {
@@ -715,23 +716,23 @@ button.text.danger:hover {
 }
 
 .annotation-word[data-highlight-level="1"]::before {
-  background: rgba(224, 49, 49, 0.2);
-  opacity: 1;
-}
-
-.annotation-word[data-highlight-level="2"]::before {
   background: rgba(224, 49, 49, 0.32);
   opacity: 1;
 }
 
+.annotation-word[data-highlight-level="2"]::before {
+  background: rgba(224, 49, 49, 0.5);
+  opacity: 1;
+}
+
 .annotation-word[data-highlight-level="3"]::before {
-  background: rgba(224, 49, 49, 0.45);
+  background: rgba(224, 49, 49, 0.68);
   opacity: 1;
 }
 
 .annotation-word[data-highlight-level="4"]::before,
 .annotation-word[data-highlight-level="5"]::before {
-  background: rgba(224, 49, 49, 0.58);
+  background: rgba(224, 49, 49, 0.85);
   opacity: 1;
 }
 
