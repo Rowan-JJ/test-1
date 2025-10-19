@@ -237,106 +237,53 @@
     </section>
 
     <section class="panel preview-panel" id="preview-section">
-      <h2>标题与 Search Term 预览区</h2>
-      <p class="hint">使用下方的批量导出按钮汇总全部标题与 Search Term，可分别执行复制、词频统计与 AI 审查。</p>
-      <div class="preview-columns">
-        <div class="preview-column" id="title-preview-column">
-          <div class="preview-column-header">
-            <h3>标题预览</h3>
-            <div class="preview-actions">
-              <div class="preview-format">
-                <label for="title-preview-format">导出方式</label>
-                <select id="title-preview-format">
-                  <option value="simple">简化（仅文本）</option>
-                  <option value="detailed">完整（含标识）</option>
-                </select>
-              </div>
-              <button id="title-preview-export" class="secondary bulk-action" type="button">批量导出</button>
-              <button id="title-preview-copy" class="secondary" type="button">复制</button>
-              <button id="title-preview-ai" class="secondary" type="button">AI 审查</button>
-            </div>
-          </div>
-          <p class="hint" id="title-preview-empty">暂未生成标题，请先批量导出。</p>
-          <div class="preview-block" id="title-preview-current" hidden>
-            <div class="preview-block-header">
-              <h4>当前标题</h4>
-              <span class="preview-count" id="title-preview-count"></span>
-            </div>
-            <pre class="preview-text" id="title-preview-text"></pre>
-          </div>
-          <div class="preview-block" id="title-preview-ai-block" hidden>
-            <div class="preview-block-header">
-              <h4>AI 审查结果</h4>
-              <div class="preview-block-meta">
-                <span class="preview-char-count" id="title-preview-ai-chars"></span>
-                <div class="preview-ai-actions">
-                  <button class="secondary" id="title-preview-export-results" type="button">导出</button>
-                  <button class="text" id="title-preview-ai-reset" type="button">清空</button>
-                </div>
-              </div>
-            </div>
-            <p class="hint" id="title-preview-ai-empty">暂无 AI 调整结果，将使用当前内容导出。</p>
-            <pre class="preview-text" id="title-preview-ai-text"></pre>
-          </div>
-          <div class="preview-block" id="title-frequency-block" hidden>
-            <div class="preview-block-header">
-              <h4>词频统计</h4>
-              <div class="preview-frequency-actions">
-                <button class="secondary" id="title-preview-frequency" type="button">生成词频</button>
-                <button class="text" id="title-preview-frequency-clear" type="button">清空</button>
-              </div>
-            </div>
-            <div class="frequency-list" id="title-preview-frequency-list"></div>
-          </div>
+      <div class="preview-header">
+        <h2>标题与 Search Term 预览区</h2>
+        <button id="preview-ai-review" class="secondary" type="button">AI 审查</button>
+      </div>
+      <p class="hint">使用下方的批量导出按钮汇总全部标题与 Search Term，可执行复制、词频统计与 AI 审查。</p>
+      <div class="preview-toolbar">
+        <div class="preview-group">
+          <label for="title-preview-format">标题导出方式</label>
+          <select id="title-preview-format">
+            <option value="simple">简化（仅文本）</option>
+            <option value="detailed">完整（含标识）</option>
+          </select>
+          <button id="title-preview-export" class="secondary bulk-action" type="button">批量导出</button>
+          <button id="title-preview-copy" class="secondary" type="button">复制</button>
         </div>
-        <div class="preview-column" id="search-preview-column">
-          <div class="preview-column-header">
-            <h3>Search Term 预览</h3>
-            <div class="preview-actions">
-              <div class="preview-format">
-                <label for="search-preview-format">导出方式</label>
-                <select id="search-preview-format">
-                  <option value="simple">简化（仅文本）</option>
-                  <option value="detailed">完整（含标识）</option>
-                </select>
-              </div>
-              <button id="search-preview-export" class="secondary bulk-action" type="button">批量导出</button>
-              <button id="search-preview-copy" class="secondary" type="button">复制</button>
-              <button id="search-preview-ai" class="secondary" type="button">AI 审查</button>
+        <div class="preview-group">
+          <label for="search-preview-format">Search Term 导出方式</label>
+          <select id="search-preview-format">
+            <option value="simple">简化（仅文本）</option>
+            <option value="detailed">完整（含标识）</option>
+          </select>
+          <button id="search-preview-export" class="secondary bulk-action" type="button">批量导出</button>
+          <button id="search-preview-copy" class="secondary" type="button">复制</button>
+        </div>
+      </div>
+      <p class="hint" id="preview-empty">暂未生成标题或 Search Term，请先批量导出。</p>
+      <div class="preview-list" id="preview-list"></div>
+      <div class="preview-frequency-grid">
+        <div class="preview-block" id="title-frequency-block" hidden>
+          <div class="preview-block-header">
+            <h4>标题词频统计</h4>
+            <div class="preview-frequency-actions">
+              <button class="secondary" id="title-preview-frequency" type="button">生成词频</button>
+              <button class="text" id="title-preview-frequency-clear" type="button">清空</button>
             </div>
           </div>
-          <p class="hint" id="search-preview-empty">暂未生成 Search Term，请先批量导出。</p>
-          <div class="preview-block" id="search-preview-current" hidden>
-            <div class="preview-block-header">
-              <h4>当前 Search Term</h4>
-              <span class="preview-count" id="search-preview-count"></span>
+          <div class="frequency-list" id="title-preview-frequency-list"></div>
+        </div>
+        <div class="preview-block" id="search-frequency-block" hidden>
+          <div class="preview-block-header">
+            <h4>Search Term 词频统计</h4>
+            <div class="preview-frequency-actions">
+              <button class="secondary" id="search-preview-frequency" type="button">生成词频</button>
+              <button class="text" id="search-preview-frequency-clear" type="button">清空</button>
             </div>
-            <pre class="preview-text" id="search-preview-text"></pre>
           </div>
-          <div class="preview-block" id="search-preview-ai-block" hidden>
-            <div class="preview-block-header">
-              <h4>AI 审查结果</h4>
-              <div class="preview-block-meta">
-                <span class="preview-char-count" id="search-preview-ai-chars"></span>
-                <div class="preview-ai-actions">
-                  <button class="secondary" id="search-preview-export-results" type="button">导出</button>
-                  <button class="text" id="search-preview-ai-reset" type="button">清空</button>
-                </div>
-              </div>
-            </div>
-            <p class="hint" id="search-preview-ai-empty">暂无 AI 调整结果，将使用当前内容导出。</p>
-            <pre class="preview-text" id="search-preview-ai-text"></pre>
-          </div>
-          <div class="preview-block" id="search-frequency-block" hidden>
-            <div class="preview-block-header">
-              <h4>词频统计</h4>
-              <div class="preview-frequency-actions">
-                <button class="secondary" id="search-preview-frequency" type="button">生成词频</button>
-                <button class="text" id="search-preview-frequency-clear" type="button">清空</button>
-              </div>
-            </div>
-            <div class="frequency-list" id="search-preview-frequency-list"></div>
-          </div>
+          <div class="frequency-list" id="search-preview-frequency-list"></div>
         </div>
       </div>
       <div class="five-point-section" id="five-point-section">

@@ -677,10 +677,9 @@ function formatFrequencyRatio(ratio) {
 function createPreviewBucket({ enableFrequency = false } = {}) {
   return {
     items: [],
-    aiItems: [],
-    aiRaw: '',
     enableFrequency,
     frequencies: enableFrequency ? null : undefined,
+    reviews: new Map(),
   };
 }
 
@@ -967,6 +966,16 @@ const topNav = document.querySelector('.top-nav');
 const annotationTooltip = document.createElement('div');
 annotationTooltip.className = 'annotation-tooltip';
 document.body.appendChild(annotationTooltip);
+
+function selectElementContents(element) {
+  if (!element) return;
+  const selection = window.getSelection?.();
+  if (!selection) return;
+  selection.removeAllRanges();
+  const range = document.createRange();
+  range.selectNodeContents(element);
+  selection.addRange(range);
+}
 const libraryPanel = document.getElementById('library-section');
 const libraryBody = document.getElementById('library-body');
 const toggleLibraryBtn = document.getElementById('toggle-library');
@@ -1006,42 +1015,26 @@ const pendingRetryAllBtn = document.getElementById('pending-retry-all');
 const spuSummaryList = document.getElementById('spu-summary-list');
 const spuSummaryEmpty = document.getElementById('spu-summary-empty');
 
+const previewElements = {
+  container: document.getElementById('preview-list'),
+  empty: document.getElementById('preview-empty'),
+  aiButton: document.getElementById('preview-ai-review'),
+};
+
 const titlePreviewElements = {
-  empty: document.getElementById('title-preview-empty'),
-  currentBlock: document.getElementById('title-preview-current'),
-  text: document.getElementById('title-preview-text'),
-  count: document.getElementById('title-preview-count'),
-  aiBlock: document.getElementById('title-preview-ai-block'),
-  aiText: document.getElementById('title-preview-ai-text'),
-  aiEmpty: document.getElementById('title-preview-ai-empty'),
-  aiReset: document.getElementById('title-preview-ai-reset'),
-  aiExport: document.getElementById('title-preview-export-results'),
+  formatSelect: document.getElementById('title-preview-format'),
   exportBtn: document.getElementById('title-preview-export'),
   copyBtn: document.getElementById('title-preview-copy'),
-  aiBtn: document.getElementById('title-preview-ai'),
-  formatSelect: document.getElementById('title-preview-format'),
   frequencyBlock: document.getElementById('title-frequency-block'),
   frequencyList: document.getElementById('title-preview-frequency-list'),
   frequencyBtn: document.getElementById('title-preview-frequency'),
   frequencyClear: document.getElementById('title-preview-frequency-clear'),
-  aiChars: document.getElementById('title-preview-ai-chars'),
 };
 
 const searchPreviewElements = {
-  empty: document.getElementById('search-preview-empty'),
-  currentBlock: document.getElementById('search-preview-current'),
-  text: document.getElementById('search-preview-text'),
-  count: document.getElementById('search-preview-count'),
-  aiBlock: document.getElementById('search-preview-ai-block'),
-  aiText: document.getElementById('search-preview-ai-text'),
-  aiEmpty: document.getElementById('search-preview-ai-empty'),
-  aiReset: document.getElementById('search-preview-ai-reset'),
-  aiExport: document.getElementById('search-preview-export-results'),
+  formatSelect: document.getElementById('search-preview-format'),
   exportBtn: document.getElementById('search-preview-export'),
   copyBtn: document.getElementById('search-preview-copy'),
-  aiBtn: document.getElementById('search-preview-ai'),
-  formatSelect: document.getElementById('search-preview-format'),
-  aiChars: document.getElementById('search-preview-ai-chars'),
   frequencyBlock: document.getElementById('search-frequency-block'),
   frequencyList: document.getElementById('search-preview-frequency-list'),
   frequencyBtn: document.getElementById('search-preview-frequency'),
@@ -2384,14 +2377,38 @@ function renderSpuSummary() {
     const title = document.createElement('strong');
     title.textContent = spu.name || '未命名 SPU';
     li.appendChild(title);
-    const info = document.createElement('p');
     const infoText = (spu.info || '').trim();
-    const display = infoText || '（产品信息待完善，详见左侧面板）';
-    info.textContent = display;
-    if (infoText) {
-      info.title = infoText;
+    const infoLine = document.createElement('p');
+    infoLine.className = 'spu-summary-info';
+    if (!infoText) {
+      infoLine.textContent = '（产品信息待完善，详见左侧面板）';
+    } else {
+      const textSpan = document.createElement('span');
+      const truncated = infoText.length > 100 ? `${infoText.slice(0, 100)}…` : infoText;
+      textSpan.textContent = truncated;
+      textSpan.title = infoText;
+      infoLine.appendChild(textSpan);
+      if (infoText.length > 100) {
+        const toggleBtn = document.createElement('button');
+        toggleBtn.type = 'button';
+        toggleBtn.className = 'text link spu-info-toggle';
+        toggleBtn.textContent = '展开';
+        toggleBtn.addEventListener('click', () => {
+          const expanded = toggleBtn.dataset.expanded === 'true';
+          if (expanded) {
+            textSpan.textContent = `${infoText.slice(0, 100)}…`;
+            toggleBtn.textContent = '展开';
+            toggleBtn.dataset.expanded = 'false';
+          } else {
+            textSpan.textContent = infoText;
+            toggleBtn.textContent = '收起';
+            toggleBtn.dataset.expanded = 'true';
+          }
+        });
+        infoLine.appendChild(toggleBtn);
+      }
     }
-    li.appendChild(info);
+    li.appendChild(infoLine);
     spuSummaryList.appendChild(li);
   }
 }
@@ -3281,238 +3298,296 @@ function setPreviewItems(kind, items) {
   const bucket = getPreviewBucket(kind);
   if (!bucket) return;
   bucket.items = Array.isArray(items) ? items : [];
-  bucket.aiItems = [];
-  bucket.aiRaw = '';
   if (bucket.enableFrequency) {
     bucket.frequencies = null;
   }
+  if (bucket.reviews) {
+    bucket.reviews.clear();
+  }
   renderPreview();
-}
-
-function getActivePreviewItems(kind) {
-  const bucket = getPreviewBucket(kind);
-  if (!bucket) return [];
-  if (bucket.aiItems?.length) return bucket.aiItems;
-  if (bucket.aiRaw) return bucket.items;
-  return bucket.items;
 }
 
 function getPreviewCopyPayload(kind) {
   const bucket = getPreviewBucket(kind);
   if (!bucket) return '';
   const format = getPreviewFormat(kind);
-  if (bucket.aiItems?.length) {
-    return formatPreviewItems(bucket.aiItems, format, kind);
+  if (!bucket.items?.length) {
+    return '';
   }
-  if (bucket.aiRaw) {
-    return bucket.aiRaw;
-  }
-  if (bucket.items?.length) {
-    return formatPreviewItems(bucket.items, format, kind);
-  }
-  return '';
+  return formatPreviewItems(bucket.items, format, kind);
 }
 
 function renderPreview() {
-  renderTitlePreview();
-  renderSearchPreview();
+  renderPreviewList();
+  renderFrequencyBlock('titles', titlePreviewElements);
+  renderFrequencyBlock('search', searchPreviewElements);
 }
 
-function renderTitlePreview() {
-  const bucket = getPreviewBucket('titles');
-  if (!bucket) return;
-  const hasItems = Boolean(bucket.items?.length);
-  const format = getPreviewFormat('titles');
-  if (titlePreviewElements.empty) {
-    titlePreviewElements.empty.hidden = hasItems;
+function renderPreviewList() {
+  const container = previewElements.container;
+  const emptyEl = previewElements.empty;
+  if (!container || !emptyEl) return;
+  container.innerHTML = '';
+  const titleBucket = getPreviewBucket('titles');
+  const searchBucket = getPreviewBucket('search');
+  const titleItems = titleBucket?.items || [];
+  const searchItems = searchBucket?.items || [];
+  const hasContent = titleItems.length > 0 || searchItems.length > 0;
+  emptyEl.hidden = hasContent;
+  container.hidden = !hasContent;
+  if (!hasContent) {
+    return;
   }
-  if (titlePreviewElements.currentBlock) {
-    titlePreviewElements.currentBlock.hidden = !hasItems;
-    if (hasItems) {
-      if (titlePreviewElements.text) {
-        titlePreviewElements.text.textContent = formatPreviewItems(bucket.items, format, 'titles');
-      }
-      if (titlePreviewElements.count) {
-        titlePreviewElements.count.textContent = `${bucket.items.length} 条内容`;
-      }
-    } else {
-      if (titlePreviewElements.text) {
-        titlePreviewElements.text.textContent = '';
-      }
-      if (titlePreviewElements.count) {
-        titlePreviewElements.count.textContent = '';
+
+  const entryMap = new Map();
+
+  function ensureEntry(spuId) {
+    if (!spuId) return null;
+    if (entryMap.has(spuId)) return entryMap.get(spuId);
+    const spu = state.spus.get(spuId);
+    if (!spu) return null;
+    const entry = {
+      spuId,
+      spuName: spu.name || '未命名 SPU',
+      subtitle: null,
+      skus: new Map(),
+    };
+    entryMap.set(spuId, entry);
+    return entry;
+  }
+
+  function ensureSkuEntry(entry, skuId) {
+    if (!entry || !skuId) return null;
+    let skuEntry = entry.skus.get(skuId);
+    if (!skuEntry) {
+      const spu = state.spus.get(entry.spuId);
+      const sku = spu?.skus?.find((item) => item.id === skuId);
+      skuEntry = {
+        skuId,
+        skuName: sku?.name || skuId,
+        title: null,
+        search: null,
+      };
+      entry.skus.set(skuId, skuEntry);
+    }
+    return skuEntry;
+  }
+
+  for (const item of titleItems) {
+    const entry = ensureEntry(item.spuId);
+    if (!entry) continue;
+    if (item.type === 'subtitle') {
+      entry.subtitle = item;
+    } else if (item.type === 'sku') {
+      const skuEntry = ensureSkuEntry(entry, item.skuId);
+      if (skuEntry) {
+        skuEntry.title = item;
       }
     }
   }
 
-  const hasAiText = Boolean(bucket.aiItems?.length || bucket.aiRaw);
-  if (titlePreviewElements.aiBlock) {
-    const shouldShow = hasItems;
-    titlePreviewElements.aiBlock.hidden = !shouldShow;
-    if (!shouldShow && titlePreviewElements.aiChars) {
-      titlePreviewElements.aiChars.textContent = '';
+  for (const item of searchItems) {
+    const entry = ensureEntry(item.spuId);
+    if (!entry) continue;
+    const skuEntry = ensureSkuEntry(entry, item.skuId);
+    if (skuEntry) {
+      skuEntry.search = item;
     }
-    if (shouldShow) {
-      if (titlePreviewElements.aiEmpty) {
-        titlePreviewElements.aiEmpty.hidden = hasAiText;
-      }
-      if (titlePreviewElements.aiText) {
-        if (hasAiText) {
-          const text = bucket.aiItems?.length
-            ? formatPreviewItems(bucket.aiItems, format, 'titles')
-            : bucket.aiRaw;
-          titlePreviewElements.aiText.textContent = text;
-          titlePreviewElements.aiText.hidden = false;
-          if (titlePreviewElements.aiChars) {
-            titlePreviewElements.aiChars.textContent = text ? `字符数：${text.length}` : '';
-          }
-        } else {
-          titlePreviewElements.aiText.textContent = '';
-          titlePreviewElements.aiText.hidden = true;
-          if (titlePreviewElements.aiChars) {
-            titlePreviewElements.aiChars.textContent = '';
-          }
-        }
-      }
-    }
-  }
-  if (titlePreviewElements.aiExport) {
-    titlePreviewElements.aiExport.disabled = !hasItems;
-  }
-  if (titlePreviewElements.aiReset) {
-    titlePreviewElements.aiReset.disabled = !hasAiText;
   }
 
-  const freqVisible = Array.isArray(bucket.frequencies) && bucket.frequencies.length > 0;
-  const showFrequencyBlock = bucket.enableFrequency && (hasItems || freqVisible);
-  if (titlePreviewElements.frequencyBlock) {
-    titlePreviewElements.frequencyBlock.hidden = !showFrequencyBlock;
-    if (titlePreviewElements.frequencyList) {
-      titlePreviewElements.frequencyList.innerHTML = '';
-      if (freqVisible) {
-        const fragment = document.createDocumentFragment();
-        for (const entry of bucket.frequencies) {
-          const row = document.createElement('div');
-          row.className = 'frequency-row';
-          const wordEl = document.createElement('span');
-          wordEl.className = 'frequency-word';
-          wordEl.textContent = entry.word;
-          const countEl = document.createElement('span');
-          countEl.className = 'frequency-count';
-          countEl.textContent = `${entry.count} 次`;
-          const ratioEl = document.createElement('span');
-          ratioEl.className = 'frequency-ratio';
-          ratioEl.textContent = formatFrequencyRatio(entry.ratio);
-          row.append(wordEl, countEl, ratioEl);
-          fragment.appendChild(row);
-        }
-        titlePreviewElements.frequencyList.appendChild(fragment);
-      } else if (showFrequencyBlock) {
-        const empty = document.createElement('p');
-        empty.className = 'hint';
-        empty.textContent = '暂无统计结果，请点击“生成词频统计”。';
-        titlePreviewElements.frequencyList.appendChild(empty);
+  const fragment = document.createDocumentFragment();
+
+  for (const [spuId, spu] of state.spus.entries()) {
+    const entry = entryMap.get(spuId);
+    if (!entry) continue;
+    const group = document.createElement('div');
+    group.className = 'preview-spu-group';
+
+    const spuNameEl = document.createElement('h3');
+    spuNameEl.className = 'preview-spu-name';
+    spuNameEl.textContent = entry.spuName;
+    group.appendChild(spuNameEl);
+
+    if (entry.subtitle) {
+      group.appendChild(createPreviewItem(entry.subtitle, '父标题', 'titles'));
+    }
+
+    const spuData = state.spus.get(spuId);
+    const skuList = Array.isArray(spuData?.skus) ? spuData.skus : [];
+    for (const sku of skuList) {
+      const skuEntry = entry.skus.get(sku.id);
+      if (!skuEntry) continue;
+      const skuNameEl = document.createElement('h4');
+      skuNameEl.className = 'preview-sku-name';
+      skuNameEl.textContent = skuEntry.skuName;
+      group.appendChild(skuNameEl);
+
+      if (skuEntry.title) {
+        group.appendChild(createPreviewItem(skuEntry.title, 'SKU 标题', 'titles'));
+      }
+      if (skuEntry.search) {
+        group.appendChild(createPreviewItem(skuEntry.search, 'Search Term', 'search'));
       }
     }
+
+    fragment.appendChild(group);
   }
+
+  container.appendChild(fragment);
 }
 
-function renderSearchPreview() {
-  const bucket = getPreviewBucket('search');
+function getPreviewReview(kind, itemId) {
+  const bucket = getPreviewBucket(kind);
+  if (!bucket || !bucket.reviews) return null;
+  return bucket.reviews.get(itemId) || null;
+}
+
+function createPreviewItem(item, label, bucketKey) {
+  const wrapper = document.createElement('div');
+  wrapper.className = 'preview-item';
+  wrapper.dataset.itemId = item.id;
+  wrapper.dataset.bucket = bucketKey;
+  wrapper.dataset.type = item.type || '';
+
+  const header = document.createElement('div');
+  header.className = 'preview-item-header';
+
+  const labelEl = document.createElement('span');
+  labelEl.className = 'preview-item-label';
+  labelEl.textContent = label;
+  header.appendChild(labelEl);
+
+  const editBtn = document.createElement('button');
+  editBtn.className = 'text preview-edit';
+  editBtn.type = 'button';
+  editBtn.dataset.itemId = item.id;
+  editBtn.dataset.bucket = bucketKey;
+  editBtn.textContent = '编辑';
+  header.appendChild(editBtn);
+
+  wrapper.appendChild(header);
+
+  const box = document.createElement('div');
+  box.className = 'preview-item-box';
+  box.dataset.itemId = item.id;
+
+  const textEl = document.createElement('div');
+  textEl.className = 'preview-item-text';
+  const baseText = (item.text || '').toString();
+  const displayText = bucketKey === 'search' ? transformSearchText(baseText) : transformTitleText(baseText);
+  textEl.textContent = displayText;
+  box.appendChild(textEl);
+
+  const review = getPreviewReview(bucketKey === 'search' ? 'search' : 'titles', item.id);
+  if (review) {
+    if (review.status === 'ok') {
+      box.classList.add('status-ok');
+      const icon = document.createElement('span');
+      icon.className = 'preview-status-icon success';
+      icon.setAttribute('aria-label', '审查通过');
+      icon.textContent = '✓';
+      box.appendChild(icon);
+    } else if (review.status === 'error') {
+      box.classList.add('status-error');
+      const icon = document.createElement('span');
+      icon.className = 'preview-status-icon error';
+      icon.setAttribute('aria-label', '存在问题');
+      icon.textContent = '!';
+      box.appendChild(icon);
+      if (review.message) {
+        box.dataset.issue = review.message;
+        box.title = review.message;
+      }
+    }
+  }
+
+  wrapper.appendChild(box);
+  return wrapper;
+}
+
+function handlePreviewEdit(button) {
+  if (!button) return;
+  const itemId = button.dataset.itemId;
+  const bucketKey = button.dataset.bucket === 'search' ? 'search' : 'titles';
+  if (!itemId || !bucketKey) return;
+  const wrapper = button.closest('.preview-item');
+  if (!wrapper) return;
+  const textEl = wrapper.querySelector('.preview-item-text');
+  if (!textEl) return;
+  const isEditing = wrapper.dataset.editing === 'true';
+  if (!isEditing) {
+    wrapper.dataset.editing = 'true';
+    textEl.contentEditable = 'true';
+    textEl.spellcheck = false;
+    requestAnimationFrame(() => {
+      textEl.focus();
+      selectElementContents(textEl);
+    });
+    button.textContent = '保存';
+    return;
+  }
+
+  const bucket = getPreviewBucket(bucketKey);
+  if (!bucket) return;
+  const items = bucket.items || [];
+  const target = items.find((entry) => entry.id === itemId);
+  if (!target) {
+    showToast('未找到可更新的内容', true);
+    return;
+  }
+  const rawText = textEl.textContent.trim();
+  const formatted = bucketKey === 'search' ? transformSearchText(rawText) : transformTitleText(rawText);
+  target.text = formatted;
+  if (bucket.reviews) {
+    bucket.reviews.delete(itemId);
+  }
+  if (bucket.enableFrequency) {
+    bucket.frequencies = null;
+  }
+  wrapper.dataset.editing = 'false';
+  textEl.contentEditable = 'false';
+  button.textContent = '编辑';
+  renderPreview();
+  showToast('内容已更新');
+}
+
+function renderFrequencyBlock(kind, elements) {
+  if (!elements?.frequencyBlock) return;
+  const bucket = getPreviewBucket(kind);
   if (!bucket) return;
   const hasItems = Boolean(bucket.items?.length);
-  const format = getPreviewFormat('search');
-  if (searchPreviewElements.empty) {
-    searchPreviewElements.empty.hidden = hasItems;
-  }
-  if (searchPreviewElements.currentBlock) {
-    searchPreviewElements.currentBlock.hidden = !hasItems;
-    if (hasItems) {
-      if (searchPreviewElements.text) {
-        searchPreviewElements.text.textContent = formatPreviewItems(bucket.items, format, 'search');
-      }
-      if (searchPreviewElements.count) {
-        searchPreviewElements.count.textContent = `${bucket.items.length} 条内容`;
-      }
-    } else {
-      if (searchPreviewElements.text) {
-        searchPreviewElements.text.textContent = '';
-      }
-      if (searchPreviewElements.count) {
-        searchPreviewElements.count.textContent = '';
-      }
-    }
-  }
-
-  const hasAiText = Boolean(bucket.aiItems?.length || bucket.aiRaw);
-  if (searchPreviewElements.aiBlock) {
-    const shouldShow = hasItems;
-    searchPreviewElements.aiBlock.hidden = !shouldShow;
-    if (!shouldShow && searchPreviewElements.aiChars) {
-      searchPreviewElements.aiChars.textContent = '';
-    }
-    if (shouldShow) {
-      if (searchPreviewElements.aiEmpty) {
-        searchPreviewElements.aiEmpty.hidden = hasAiText;
-      }
-      if (searchPreviewElements.aiText) {
-        if (hasAiText) {
-          const text = bucket.aiItems?.length
-            ? formatPreviewItems(bucket.aiItems, format, 'search')
-            : bucket.aiRaw;
-          searchPreviewElements.aiText.textContent = text;
-          searchPreviewElements.aiText.hidden = false;
-          if (searchPreviewElements.aiChars) {
-            searchPreviewElements.aiChars.textContent = text ? `字符数：${text.length}` : '';
-          }
-        } else {
-          searchPreviewElements.aiText.textContent = '';
-          searchPreviewElements.aiText.hidden = true;
-          if (searchPreviewElements.aiChars) {
-            searchPreviewElements.aiChars.textContent = '';
-          }
-        }
-      }
-    }
-  }
-  if (searchPreviewElements.aiExport) {
-    searchPreviewElements.aiExport.disabled = !hasItems;
-  }
-  if (searchPreviewElements.aiReset) {
-    searchPreviewElements.aiReset.disabled = !hasAiText;
-  }
-
   const freqVisible = Array.isArray(bucket.frequencies) && bucket.frequencies.length > 0;
-  const showFrequencyBlock = bucket.enableFrequency && (hasItems || freqVisible);
-  if (searchPreviewElements.frequencyBlock) {
-    searchPreviewElements.frequencyBlock.hidden = !showFrequencyBlock;
-    if (searchPreviewElements.frequencyList) {
-      searchPreviewElements.frequencyList.innerHTML = '';
-      if (freqVisible) {
-        const fragment = document.createDocumentFragment();
-        for (const entry of bucket.frequencies) {
-          const row = document.createElement('div');
-          row.className = 'frequency-row';
-          const wordEl = document.createElement('span');
-          wordEl.className = 'frequency-word';
-          wordEl.textContent = entry.word;
-          const countEl = document.createElement('span');
-          countEl.className = 'frequency-count';
-          countEl.textContent = `${entry.count} 次`;
-          const ratioEl = document.createElement('span');
-          ratioEl.className = 'frequency-ratio';
-          ratioEl.textContent = formatFrequencyRatio(entry.ratio);
-          row.append(wordEl, countEl, ratioEl);
-          fragment.appendChild(row);
-        }
-        searchPreviewElements.frequencyList.appendChild(fragment);
-      } else if (showFrequencyBlock) {
-        const empty = document.createElement('p');
-        empty.className = 'hint';
-        empty.textContent = '暂无统计结果，请点击“生成词频统计”。';
-        searchPreviewElements.frequencyList.appendChild(empty);
-      }
+  const shouldShow = bucket.enableFrequency && (hasItems || freqVisible);
+  elements.frequencyBlock.hidden = !shouldShow;
+  if (!shouldShow) {
+    return;
+  }
+  const listEl = elements.frequencyList;
+  if (!listEl) return;
+  listEl.innerHTML = '';
+  if (freqVisible) {
+    const fragment = document.createDocumentFragment();
+    for (const entry of bucket.frequencies) {
+      const row = document.createElement('div');
+      row.className = 'frequency-row';
+      const wordEl = document.createElement('span');
+      wordEl.className = 'frequency-word';
+      wordEl.textContent = entry.word;
+      const countEl = document.createElement('span');
+      countEl.className = 'frequency-count';
+      countEl.textContent = `${entry.count} 次`;
+      const ratioEl = document.createElement('span');
+      ratioEl.className = 'frequency-ratio';
+      ratioEl.textContent = formatFrequencyRatio(entry.ratio);
+      row.append(wordEl, countEl, ratioEl);
+      fragment.appendChild(row);
     }
+    listEl.appendChild(fragment);
+  } else {
+    const hint = document.createElement('p');
+    hint.className = 'hint';
+    hint.textContent = '暂无统计结果，请点击“生成词频统计”。';
+    listEl.appendChild(hint);
   }
 }
 
@@ -3536,7 +3611,7 @@ function computeWordFrequencies(items) {
 function showTitleFrequencies() {
   const bucket = getPreviewBucket('titles');
   if (!bucket) return;
-  const items = getActivePreviewItems('titles');
+  const items = bucket.items;
   if (!items?.length) {
     showToast('暂无可统计的内容', true);
     return;
@@ -3563,7 +3638,7 @@ function clearTitleFrequencies() {
 function showSearchFrequencies() {
   const bucket = getPreviewBucket('search');
   if (!bucket) return;
-  const items = getActivePreviewItems('search');
+  const items = bucket.items;
   if (!items?.length) {
     showToast('暂无可统计的内容', true);
     return;
@@ -3587,63 +3662,71 @@ function clearSearchFrequencies() {
   renderPreview();
 }
 
-function clearPreviewAi(kind) {
-  const bucket = getPreviewBucket(kind);
-  if (!bucket) return;
-  bucket.aiItems = [];
-  bucket.aiRaw = '';
-  if (bucket.enableFrequency) {
-    bucket.frequencies = null;
-  }
-  renderPreview();
-}
-
-async function adjustPreviewWithAI(kind) {
-  const bucket = getPreviewBucket(kind);
-  if (!bucket) return;
-  const items = bucket.aiItems?.length ? bucket.aiItems : bucket.items;
-  if (!items?.length) {
-    showToast('请先在上方批量导出内容', true);
+async function reviewPreviewWithAI() {
+  const titleBucket = getPreviewBucket('titles');
+  const searchBucket = getPreviewBucket('search');
+  if (!titleBucket || !searchBucket) return;
+  const titleItems = titleBucket.items || [];
+  const searchItems = searchBucket.items || [];
+  if (!titleItems.length && !searchItems.length) {
+    showToast('暂无可审查的标题或 Search Term', true);
     return;
   }
+
   const apiKey = apiKeyInput.value.trim();
   if (!apiKey) {
     alert('请先输入有效的 DeepSeek API Key。');
     return;
   }
-  const elements = kind === 'titles' ? titlePreviewElements : searchPreviewElements;
-  const triggerBtn = elements.aiBtn;
+
+  const triggerBtn = previewElements.aiButton;
   if (!triggerBtn) return;
   triggerBtn.disabled = true;
   const originalText = triggerBtn.textContent;
   triggerBtn.textContent = '审查中...';
+
   try {
-    const kindLabel = kind === 'titles' ? '标题' : 'Search Term';
-    const bannedWords = Array.from(BANNED_AMAZON_WORDS).join(', ');
+    const entries = [];
+    const bannedWords = Array.from(BANNED_AMAZON_WORDS).join('、');
     const blockedBrands = Array.from(BRAND_BLACKLIST)
       .filter((brand) => !BRAND_WHITELIST.has(brand))
-      .join(', ');
-    const payload = items
-      .map((item, index) => {
-        const label = item.label ? `（${item.label}）` : '';
-        const baseText = (item.text || '').toString();
-        return `${index + 1}. id=${item.id}${label}\n内容：${baseText}`;
-      })
+      .join('、');
+
+    for (const item of titleItems) {
+      const type = item.type === 'subtitle' ? 'parent' : 'sku';
+      const limit = type === 'parent' ? 125 : 200;
+      const text = transformTitleText((item.text || '').toString());
+      entries.push({ id: item.id, type, limit, text });
+    }
+
+    for (const item of searchItems) {
+      const text = transformSearchText((item.text || '').toString());
+      entries.push({ id: item.id, type: 'search', limit: 250, text });
+    }
+
+    const payload = entries
+      .map(
+        (entry, index) =>
+          `#${index + 1} id=${entry.id}\n类型: ${entry.type}\n字符上限: ${entry.limit}\n内容: ${entry.text}`,
+      )
       .join('\n\n');
 
+    const rules = [
+      '父标题字符数 ≤125、SKU 标题 ≤200、Search Term ≤250（均包含空格）。',
+      '仅允许品牌词 Popilush（忽略大小写）；其他品牌词判定为问题。',
+      bannedWords ? `以下违禁词若出现则判定为问题：${bannedWords}。` : '若出现任何亚马逊违禁词则判定为问题。',
+      blockedBrands
+        ? `以下品牌词需视为问题：${blockedBrands}。`
+        : '无额外品牌黑名单。',
+      '任一单词（忽略大小写与标点）在同一条内容中出现次数不得超过 2 次，完全相同才算重复（bodysuit 与 body suit 视为不同）。',
+      'Search Term 应保持全部小写。',
+      '无需修改文本，只需给出是否合规的判断。',
+    ];
+
     const prompt =
-      `请作为亚马逊合规专员审查以下${kindLabel}，按原有顺序逐条返回校正结果。` +
-      '\n- 删除或替换任何超过两次重复的单词（以相同字母序列判断）。' +
-      '\n- 删除陌生品牌词，仅保留品牌 Popilush；如遇以下品牌词必须删除：' +
-      (blockedBrands ? ` ${blockedBrands}。` : '（无额外品牌黑名单）。') +
-      '\n- 删除所有亚马逊违禁词：' +
-      bannedWords +
-      '。' +
-      '\n- 其它词语保持不变，不要改写语序，也不要添加新词。' +
-      '\n- 每条结果请符合格式要求：标题使用英文标题大小写（常见介词可小写），Search Term 全部小写。' +
-      '\n- 保留每条的 id，返回 JSON 数组，如 [{"id":"xxx","text":"..."}]。' +
-      '\n- 如果无需修改，也需原样返回对应文本。' +
-      '\n\n待审查列表：\n' +
+      '你是亚马逊 Listing 合规审核员。请根据以下规则审查每条内容，只返回审核结果：\n-' +
+      rules.join('\n-') +
+      '\n请返回 JSON 数组，例如 [{"id":"123","status":"ok","issues":[]}]. status 只能是 "ok" 或 "error"，issues 是字符串数组（无问题时为空）。每条内容都必须给出结果。\n\n待审查列表：\n' +
       payload;
 
     const response = await fetch('https://api.deepseek.com/chat/completions', {
@@ -3658,7 +3741,7 @@ async function adjustPreviewWithAI(kind) {
           {
             role: 'system',
             content:
-              'You are an Amazon listing compliance assistant. Review provided entries and return JSON array with id/text, preserving order.',
+              'You are an Amazon listing compliance reviewer. Return a JSON array of {"id","status","issues"} without modifying the text. status must be ok or error.',
           },
           { role: 'user', content: prompt },
         ],
@@ -3692,28 +3775,39 @@ async function adjustPreviewWithAI(kind) {
       throw new Error('返回格式不是数组');
     }
 
-    const updates = new Map();
+    const reviewById = new Map();
     for (const entry of parsed) {
       if (!entry || typeof entry.id !== 'string') continue;
-      const text = typeof entry.text === 'string' ? entry.text.trim() : '';
-      updates.set(entry.id, text);
+      const status = entry.status === 'ok' ? 'ok' : 'error';
+      const issues = Array.isArray(entry.issues)
+        ? entry.issues.map((issue) => (typeof issue === 'string' ? issue.trim() : '')).filter(Boolean)
+        : [];
+      reviewById.set(entry.id, { status, issues });
     }
 
-    const processed = items.map((item) => {
-      let text = updates.has(item.id) ? updates.get(item.id) : item.text || '';
-      if (kind === 'search') {
-        text = transformSearchText(text);
+    if (titleBucket.reviews) titleBucket.reviews.clear();
+    if (searchBucket.reviews) searchBucket.reviews.clear();
+
+    for (const item of titleItems) {
+      const review = reviewById.get(item.id);
+      if (review) {
+        const message = review.status === 'error' && review.issues.length ? review.issues[0] : '';
+        titleBucket.reviews.set(item.id, { status: review.status, message });
       } else {
-        text = transformTitleText(text);
+        titleBucket.reviews.set(item.id, { status: 'error', message: 'AI 未返回该标题的审查结果' });
       }
-      return { ...item, text };
-    });
-
-    bucket.aiItems = processed;
-    bucket.aiRaw = '';
-    if (bucket.enableFrequency) {
-      bucket.frequencies = null;
     }
+
+    for (const item of searchItems) {
+      const review = reviewById.get(item.id);
+      if (review) {
+        const message = review.status === 'error' && review.issues.length ? review.issues[0] : '';
+        searchBucket.reviews.set(item.id, { status: review.status, message });
+      } else {
+        searchBucket.reviews.set(item.id, { status: 'error', message: 'AI 未返回该 Search Term 的审查结果' });
+      }
+    }
+
     renderPreview();
     showToast('AI 审查已完成');
   } catch (error) {
@@ -4062,30 +4156,6 @@ if (titlePreviewElements.copyBtn) {
   });
 }
 
-if (titlePreviewElements.aiBtn) {
-  titlePreviewElements.aiBtn.addEventListener('click', () => adjustPreviewWithAI('titles'));
-}
-
-if (titlePreviewElements.aiReset) {
-  titlePreviewElements.aiReset.addEventListener('click', () => clearPreviewAi('titles'));
-}
-
-if (titlePreviewElements.aiExport) {
-  titlePreviewElements.aiExport.addEventListener('click', () => {
-    const payload = getPreviewCopyPayload('titles');
-    if (!payload) {
-      showToast('暂无可导出的标题结果', true);
-      return;
-    }
-    navigator.clipboard?.writeText(payload).then(() => {
-      showToast('标题结果已复制');
-    }).catch(() => {
-      showToast('复制失败，请手动复制', true);
-      alert(payload);
-    });
-  });
-}
-
 if (titlePreviewElements.frequencyBtn) {
   titlePreviewElements.frequencyBtn.addEventListener('click', showTitleFrequencies);
 }
@@ -4137,27 +4207,16 @@ if (searchPreviewElements.copyBtn) {
   });
 }
 
-if (searchPreviewElements.aiBtn) {
-  searchPreviewElements.aiBtn.addEventListener('click', () => adjustPreviewWithAI('search'));
+if (previewElements.aiButton) {
+  previewElements.aiButton.addEventListener('click', reviewPreviewWithAI);
 }
 
-if (searchPreviewElements.aiReset) {
-  searchPreviewElements.aiReset.addEventListener('click', () => clearPreviewAi('search'));
-}
-
-if (searchPreviewElements.aiExport) {
-  searchPreviewElements.aiExport.addEventListener('click', () => {
-    const payload = getPreviewCopyPayload('search');
-    if (!payload) {
-      showToast('暂无可导出的 Search Term 结果', true);
-      return;
+if (previewElements.container) {
+  previewElements.container.addEventListener('click', (event) => {
+    const button = event.target.closest('.preview-edit');
+    if (button) {
+      handlePreviewEdit(button);
     }
-    navigator.clipboard?.writeText(payload).then(() => {
-      showToast('Search Term 结果已复制');
-    }).catch(() => {
-      showToast('复制失败，请手动复制', true);
-      alert(payload);
-    });
   });
 }
 

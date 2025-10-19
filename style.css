@@ -1084,6 +1084,33 @@ button.text.danger:hover {
   word-break: break-word;
 }
 
+.spu-summary-info {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+  align-items: baseline;
+}
+
+.spu-info-toggle {
+  color: var(--accent);
+  font-size: 0.82rem;
+  padding: 0;
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+.spu-info-toggle:hover {
+  text-decoration: underline;
+}
+
+.spu-info-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 .bulk-sku-panel,
 .bulk-keyword-panel,
 .five-point-panel {
@@ -1202,58 +1229,44 @@ button.text.danger:hover {
 
 
 .preview-panel {
-  gap: 16px;
-}
-
-.preview-columns {
-  display: grid;
-  gap: 20px;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  align-items: stretch;
-}
-
-.preview-column {
   display: flex;
   flex-direction: column;
   gap: 16px;
 }
 
-.preview-column-header {
+.preview-header {
   display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 12px;
-  flex-wrap: nowrap;
-}
-
-.preview-column-header h3 {
-  margin: 0;
-  flex: 0 0 auto;
-}
-
-.preview-actions {
-  display: flex;
-  flex-wrap: nowrap;
-  gap: 12px;
   align-items: center;
-  margin-left: auto;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
 }
 
-.preview-format {
+.preview-header button {
+  min-width: 120px;
+}
+
+.preview-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  align-items: center;
+}
+
+.preview-group {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  font-size: 0.78rem;
-  min-width: 0;
-  white-space: nowrap;
+  flex-wrap: wrap;
 }
 
-.preview-format label {
+.preview-group label {
   color: var(--text-secondary);
   font-weight: 600;
+  font-size: 0.82rem;
 }
 
-.preview-format select {
+.preview-group select {
   padding: 6px 10px;
   border-radius: 8px;
   border: 1px solid var(--border);
@@ -1261,35 +1274,179 @@ button.text.danger:hover {
   min-width: 140px;
 }
 
-.preview-actions button,
-.preview-ai-actions button,
+.preview-toolbar button,
 .preview-frequency-actions button {
   min-width: 118px;
   padding: 8px 12px;
   font-size: 0.82rem;
 }
 
-@media (max-width: 1100px) {
-  .preview-columns {
-    grid-template-columns: 1fr;
-  }
+.preview-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
 
-  .preview-column-header {
-    flex-wrap: wrap;
-    align-items: center;
-  }
+.preview-spu-group {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: rgba(76, 110, 245, 0.04);
+}
 
-  .preview-actions {
-    flex-wrap: wrap;
-    margin-left: 0;
-    justify-content: flex-end;
-  }
+.preview-spu-name {
+  font-size: 1.05rem;
+  font-weight: 700;
+}
 
-  .preview-format {
+.preview-sku-name {
+  font-size: 0.98rem;
+  font-weight: 600;
+  margin-top: 4px;
+}
+
+.preview-item {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.preview-item-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.preview-item-label {
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.preview-item-box {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  border-radius: 12px;
+  background: rgba(76, 214, 167, 0.18);
+  border: 1px solid rgba(76, 214, 167, 0.4);
+  padding: 12px 14px;
+  position: relative;
+  min-height: 48px;
+}
+
+.preview-item-box[data-issue]::after,
+.preview-item-box[data-issue]::before {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+
+.preview-item-box[data-issue]::after {
+  content: attr(data-issue);
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 6px;
+  background: rgba(224, 49, 49, 0.92);
+  color: #fff;
+  padding: 8px 10px;
+  border-radius: 8px;
+  font-size: 0.82rem;
+  line-height: 1.4;
+  max-width: 360px;
+  transform: translateY(-6px);
+  z-index: 22;
+  box-shadow: 0 6px 18px rgba(224, 49, 49, 0.2);
+}
+
+.preview-item-box[data-issue]::before {
+  content: '';
+  position: absolute;
+  top: 100%;
+  right: 18px;
+  margin-top: -2px;
+  border: 8px solid transparent;
+  border-bottom-color: rgba(224, 49, 49, 0.92);
+  transform: translateY(-6px);
+  z-index: 21;
+}
+
+.preview-item-box[data-issue]:hover::after,
+.preview-item-box[data-issue]:hover::before,
+.preview-item-box[data-issue]:focus-within::after,
+.preview-item-box[data-issue]:focus-within::before {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.preview-item-box.status-ok {
+  background: rgba(66, 186, 150, 0.18);
+  border-color: rgba(66, 186, 150, 0.55);
+}
+
+.preview-item-box.status-error {
+  background: rgba(224, 49, 49, 0.12);
+  border-color: rgba(224, 49, 49, 0.45);
+}
+
+.preview-item-text {
+  flex: 1 1 auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.preview-item[data-editing='true'] .preview-item-box {
+  outline: 2px dashed rgba(76, 110, 245, 0.5);
+  background: rgba(76, 110, 245, 0.12);
+}
+
+.preview-item[data-editing='true'] .preview-item-text {
+  cursor: text;
+}
+
+.preview-status-icon {
+  flex: 0 0 auto;
+  font-size: 0.9rem;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  color: #fff;
+  margin-left: auto;
+}
+
+.preview-status-icon.success {
+  background: rgba(66, 186, 150, 0.9);
+}
+
+.preview-status-icon.error {
+  background: rgba(224, 49, 49, 0.85);
+}
+
+.preview-frequency-grid {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+}
+
+@media (max-width: 900px) {
+  .preview-toolbar {
     flex-direction: column;
-    align-items: flex-start;
-    min-width: 140px;
-    white-space: normal;
+    align-items: stretch;
+  }
+
+  .preview-group {
+    justify-content: space-between;
   }
 }
 
@@ -1322,7 +1479,6 @@ button.text.danger:hover {
   color: var(--text-secondary);
 }
 
-.preview-ai-actions,
 .preview-frequency-actions {
   display: flex;
   gap: 8px;
