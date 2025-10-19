@@ -73,6 +73,31 @@ const BANNED_AMAZON_WORDS = new Set(['best', 'sexy', 'deal', 'sell', 'cheapest',
 const BRAND_WHITELIST = new Set(['popilush']);
 const BRAND_BLACKLIST = new Set(['oeak', 'spanx', 'skims', 'shapermint', 'yummie', 'hanes', 'maidenform']);
 
+const TITLE_PREPOSITIONS = new Set([
+  'a',
+  'an',
+  'and',
+  'as',
+  'at',
+  'but',
+  'by',
+  'for',
+  'from',
+  'in',
+  'into',
+  'nor',
+  'of',
+  'on',
+  'or',
+  'per',
+  'the',
+  'to',
+  'up',
+  'upon',
+  'via',
+  'with',
+]);
+
 const SEARCH_TYPE_PERCENTAGES = {
   core: 0.2,
   feature: 0.2,
@@ -375,6 +400,26 @@ function assignTokensToContainer(spuId, containerType, containerId, keywordIds) 
     }
   }
   return tokenIds;
+}
+
+function splitContainerIntoTokens(spuId, containerType, containerId) {
+  const spu = state.spus.get(spuId);
+  if (!spu) return;
+  const collection = getKeywordCollection(spu, containerType, containerId);
+  if (!collection || !collection.length) {
+    showToast('当前标题为空，无法细分', true);
+    return;
+  }
+  const tokenIds = assignTokensToContainer(spuId, containerType, containerId, collection);
+  if (!tokenIds.length) {
+    showToast('未能拆分出有效的单词', true);
+    return;
+  }
+  const target = getKeywordCollection(spu, containerType, containerId);
+  if (!target) return;
+  target.splice(0, target.length, ...tokenIds);
+  renderSpu(spuId);
+  showToast('已将标题拆分为单词，可继续微调');
 }
 
 function transferTokenOwnership(keyword, newOwnerKey) {
@@ -904,6 +949,9 @@ let pendingKeywordCounter = 0;
 let tokenCounter = 0;
 
 const topNav = document.querySelector('.top-nav');
+const annotationTooltip = document.createElement('div');
+annotationTooltip.className = 'annotation-tooltip';
+document.body.appendChild(annotationTooltip);
 const libraryPanel = document.getElementById('library-section');
 const libraryBody = document.getElementById('library-body');
 const toggleLibraryBtn = document.getElementById('toggle-library');
@@ -1439,6 +1487,10 @@ function renderDropzoneKeywords(dropzone, keywords, optionsFactory) {
   dropzone.querySelectorAll('.keyword-pill').forEach((pill) => pill.remove());
   const placeholder = dropzone.querySelector('.placeholder');
   const shouldAnnotate = dropzone.dataset.containerType !== 'search';
+  const splitButton = dropzone.querySelector('.split-words');
+  if (splitButton) {
+    splitButton.disabled = !keywords || !keywords.length;
+  }
   if (!keywords || !keywords.length) {
     if (placeholder) placeholder.hidden = false;
     if (shouldAnnotate) {
@@ -1515,87 +1567,137 @@ function findKeywordMatches(wordEntries) {
   return matches;
 }
 
+function formatWordForDisplay(word, index) {
+  const raw = (word || '').trim();
+  if (!raw) return '';
+  const upper = raw.toUpperCase();
+  if (SIZE_CODE_SET.has(upper) || /^[A-Z0-9]+$/.test(raw)) {
+    return upper;
+  }
+  const lower = raw.toLowerCase();
+  if (index > 0 && TITLE_PREPOSITIONS.has(lower)) {
+    return lower;
+  }
+  return raw
+    .split('-')
+    .map((segment) => {
+      if (!segment) return segment;
+      const first = segment.charAt(0);
+      return first.toUpperCase() + segment.slice(1).toLowerCase();
+    })
+    .join('-');
+}
+
+function hideAnnotationTooltip() {
+  if (!annotationTooltip) return;
+  annotationTooltip.classList.remove('visible');
+}
+
+function buildAnnotationTooltip(matches) {
+  if (!annotationTooltip) return;
+  annotationTooltip.innerHTML = '';
+  for (const match of matches) {
+    const item = document.createElement('div');
+    item.className = 'annotation-tooltip-item';
+    const title = document.createElement('strong');
+    title.textContent = match.keyword?.text || '未命名关键词';
+    const meta = document.createElement('span');
+    const rankText = match.keyword?.rank ? `排名: ${match.keyword.rank}` : '排名: --';
+    const heatText = match.keyword?.heat ? `热度: ${match.keyword.heat}` : '热度: --';
+    meta.textContent = `${rankText} | ${heatText}`;
+    item.appendChild(title);
+    item.appendChild(meta);
+    annotationTooltip.appendChild(item);
+  }
+}
+
+function positionAnnotationTooltip(event) {
+  if (!annotationTooltip) return;
+  const padding = 14;
+  const rect = annotationTooltip.getBoundingClientRect();
+  let left = event.clientX + padding;
+  let top = event.clientY + padding;
+  if (left + rect.width > window.innerWidth - padding) {
+    left = Math.max(padding, event.clientX - rect.width - padding);
+  }
+  if (top + rect.height > window.innerHeight - padding) {
+    top = Math.max(padding, event.clientY - rect.height - padding);
+  }
+  annotationTooltip.style.left = `${left}px`;
+  annotationTooltip.style.top = `${top}px`;
+}
+
+function showAnnotationTooltip(event, matches) {
+  if (!annotationTooltip || !matches?.length) return;
+  buildAnnotationTooltip(matches);
+  annotationTooltip.classList.add('visible');
+  positionAnnotationTooltip(event);
+}
+
+function handleAnnotationWordEnter(event) {
+  const target = event.currentTarget;
+  const matches = target?._matchData;
+  if (!matches || !matches.length) return;
+  showAnnotationTooltip(event, matches);
+}
+
+function handleAnnotationWordMove(event) {
+  if (!annotationTooltip || !annotationTooltip.classList.contains('visible')) return;
+  positionAnnotationTooltip(event);
+}
+
+function handleAnnotationWordLeave() {
+  hideAnnotationTooltip();
+}
+
 function renderTitleAnnotations(dropzone, keywordIds) {
   if (!dropzone) return;
   const container = dropzone.parentElement?.querySelector('.title-annotation');
   if (!container) return;
   const textEl = container.querySelector('.annotation-text');
   const rowsEl = container.querySelector('.annotation-rows');
+  hideAnnotationTooltip();
   if (rowsEl) {
     rowsEl.innerHTML = '';
+    rowsEl.hidden = true;
   }
-  if (textEl) {
-    textEl.textContent = '';
-  }
+  if (!textEl) return;
+  textEl.innerHTML = '';
 
   const entries = buildWordEntriesFromKeywordIds(keywordIds);
-  if (!entries.length || !rowsEl || !textEl) {
+  if (!entries.length) {
     container.hidden = true;
     return;
   }
 
   const matches = findKeywordMatches(entries);
-  if (!matches.length) {
-    container.hidden = true;
-    return;
-  }
-
-  const baseText = entries.map((entry) => entry.text).join(' ');
-  textEl.textContent = baseText;
-
-  const sortedMatches = matches
-    .slice()
-    .sort((a, b) => {
-      if (a.start !== b.start) return a.start - b.start;
-      if (b.length !== a.length) return b.length - a.length;
-      return a.keyword.text.localeCompare(b.keyword.text, 'zh-Hans-CN');
-    });
-
-  const rows = [];
-  for (const match of sortedMatches) {
-    let targetRow = rows.find((row) => match.wordIndices.every((index) => !row.occupied.has(index)));
-    if (!targetRow) {
-      targetRow = { occupied: new Set(), matches: [] };
-      rows.push(targetRow);
-    }
-    targetRow.matches.push(match);
+  const matchesByWord = new Map();
+  for (const match of matches) {
     for (const index of match.wordIndices) {
-      targetRow.occupied.add(index);
+      if (!matchesByWord.has(index)) {
+        matchesByWord.set(index, []);
+      }
+      matchesByWord.get(index).push(match);
     }
   }
 
-  for (const row of rows) {
-    const rowEl = document.createElement('div');
-    rowEl.className = 'annotation-row';
-    const matchMap = new Map();
-    for (const match of row.matches) {
-      for (const index of match.wordIndices) {
-        matchMap.set(index, match);
-      }
+  entries.forEach((entry, index) => {
+    const span = document.createElement('span');
+    span.className = 'annotation-word';
+    span.textContent = formatWordForDisplay(entry.text, index);
+    const matchList = matchesByWord.get(index) || [];
+    if (matchList.length) {
+      span.dataset.highlightLevel = String(Math.min(matchList.length, 5));
+      span.classList.add('has-highlight');
+      span._matchData = matchList;
+      span.addEventListener('mouseenter', handleAnnotationWordEnter);
+      span.addEventListener('mousemove', handleAnnotationWordMove);
+      span.addEventListener('mouseleave', handleAnnotationWordLeave);
+    } else {
+      span.dataset.highlightLevel = '0';
     }
-    for (let i = 0; i < entries.length; i += 1) {
-      const span = document.createElement('span');
-      span.className = 'annotation-word';
-      span.textContent = entries[i].text;
-      const match = matchMap.get(i);
-      if (match) {
-        span.classList.add('match');
-        if (i === match.wordIndices[0]) {
-          const rankText = match.keyword.rank ? `排名: ${match.keyword.rank}` : '排名: --';
-          const heatText = match.keyword.heat ? `热度: ${match.keyword.heat}` : '热度: --';
-          const metaText = `${rankText} | ${heatText}`;
-          const metaEl = document.createElement('span');
-          metaEl.className = 'match-meta';
-          metaEl.textContent = metaText;
-          span.appendChild(metaEl);
-        }
-      } else {
-        span.classList.add('placeholder');
-      }
-      rowEl.appendChild(span);
-    }
-    rowsEl.appendChild(rowEl);
-  }
+    textEl.appendChild(span);
+  });
 
   container.hidden = false;
 }
@@ -2315,6 +2417,12 @@ function renderSpu(spuId, { append = false } = {}) {
     context: { spuId: spu.id, containerType: 'subtitle', containerId: 'subtitle', keywordId },
   }));
   updateDropzoneMeta(subtitleDropzone, spu.subtitleKeywords);
+  const subtitleSplitBtn = subtitleDropzone.querySelector('.split-words');
+  if (subtitleSplitBtn) {
+    subtitleSplitBtn.addEventListener('click', () =>
+      splitContainerIntoTokens(spu.id, 'subtitle', 'subtitle'),
+    );
+  }
   const skuList = card.querySelector('.sku-list');
   skuList.innerHTML = '';
 
@@ -2424,6 +2532,10 @@ function renderSku(spuId, sku) {
     context: { spuId, containerType: 'sku', containerId: sku.id, keywordId },
   }));
   updateSkuMeta(skuElement, sku);
+  const splitBtn = dropzone.querySelector('.split-words');
+  if (splitBtn) {
+    splitBtn.addEventListener('click', () => splitContainerIntoTokens(spuId, 'sku', sku.id));
+  }
 
   if (!Array.isArray(sku.searchKeywords)) {
     sku.searchKeywords = Array.isArray(sku.searchKeywords) ? sku.searchKeywords.slice() : [];
@@ -2785,14 +2897,11 @@ async function autoGenerateTitles(spuId) {
       ? combination.ids.concat(colorKeywordIds)
       : combination.ids.slice();
 
+    const appliedIds = finalIds.slice();
     assignments.push(() => {
-      const appliedIds = assignTokensToContainer(
-        spu.id,
-        target.containerType,
-        target.containerId,
-        finalIds,
-      );
-      target.apply(appliedIds);
+      const ownerKey = getContainerKey(spu.id, target.containerType, target.containerId);
+      cleanupTokensForOwner(ownerKey);
+      target.apply(appliedIds.slice());
     });
   }
 
@@ -4021,6 +4130,10 @@ if (searchPreviewElements.aiExport) {
     });
   });
 }
+
+window.addEventListener('scroll', hideAnnotationTooltip, true);
+window.addEventListener('resize', hideAnnotationTooltip);
+document.addEventListener('click', hideAnnotationTooltip);
 
 initAccessGate();
 renderPreview();
