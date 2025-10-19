@@ -220,6 +220,22 @@ function getKeywordWordTokens(keyword) {
     .filter(Boolean);
 }
 
+function splitKeywordIntoWords(text) {
+  return (text || '')
+    .toString()
+    .split(/\s+/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+}
+
+function normalizeWordForMatch(word) {
+  return (word || '')
+    .toString()
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, '')
+    .trim();
+}
+
 function exceedsWordLimitForKeywords(keywords, trailingKeywords = [], limit = WORD_REPEAT_LIMIT) {
   const counts = new Map();
   const addKeyword = (keyword) => {
@@ -261,6 +277,138 @@ function applyKeywordWordCount(keyword, counts) {
     counts.set(token, (counts.get(token) || 0) + 1);
   }
   return counts;
+}
+
+function getContainerKey(spuId, containerType, containerId) {
+  return [spuId || 'spu', containerType || 'title', containerId || 'default'].join('::');
+}
+
+function registerTokenKeyword(token, ownerKey) {
+  if (!token || !ownerKey) return;
+  token.ownerKey = ownerKey;
+  let set = state.containerTokens.get(ownerKey);
+  if (!set) {
+    set = new Set();
+    state.containerTokens.set(ownerKey, set);
+  }
+  set.add(token.id);
+}
+
+function unregisterTokenKeyword(tokenId) {
+  const keyword = state.keywords.get(tokenId);
+  if (!keyword || !keyword.token) return;
+  const ownerKey = keyword.ownerKey;
+  if (ownerKey && state.containerTokens.has(ownerKey)) {
+    const set = state.containerTokens.get(ownerKey);
+    set.delete(tokenId);
+    if (!set.size) {
+      state.containerTokens.delete(ownerKey);
+    }
+  }
+  state.keywords.delete(tokenId);
+}
+
+function cleanupTokensForOwner(ownerKey) {
+  if (!ownerKey) return;
+  const set = state.containerTokens.get(ownerKey);
+  if (!set) return;
+  for (const tokenId of set) {
+    const keyword = state.keywords.get(tokenId);
+    if (keyword && keyword.token) {
+      state.keywords.delete(tokenId);
+    }
+  }
+  state.containerTokens.delete(ownerKey);
+}
+
+function cleanupTokensForSpu(spuId) {
+  if (!spuId) return;
+  const prefix = `${spuId}::`;
+  for (const key of Array.from(state.containerTokens.keys())) {
+    if (key.startsWith(prefix)) {
+      cleanupTokensForOwner(key);
+    }
+  }
+}
+
+function createTokenFromWord(word, { ownerKey, sourceId }) {
+  const text = (word || '').trim();
+  if (!text) return null;
+  const token = {
+    id: `__token_${++tokenCounter}`,
+    text,
+    type: 'token',
+    token: true,
+    virtual: true,
+    color: '#ffffff',
+    textColor: '#1f2933',
+    sourceKeywordId: sourceId,
+    ownerKey,
+  };
+  state.keywords.set(token.id, token);
+  registerTokenKeyword(token, ownerKey);
+  return token.id;
+}
+
+function assignTokensToContainer(spuId, containerType, containerId, keywordIds) {
+  const ownerKey = getContainerKey(spuId, containerType, containerId);
+  cleanupTokensForOwner(ownerKey);
+  const tokenIds = [];
+  for (const keywordId of keywordIds || []) {
+    const keyword = state.keywords.get(keywordId);
+    if (!keyword) continue;
+    if (keyword.token) {
+      transferTokenOwnership(keyword, ownerKey);
+      tokenIds.push(keyword.id);
+      continue;
+    }
+    const words = splitKeywordIntoWords(keyword.text);
+    if (!words.length) continue;
+    for (const word of words) {
+      const tokenId = createTokenFromWord(word, {
+        ownerKey,
+        sourceId: keyword.id,
+      });
+      if (tokenId) {
+        tokenIds.push(tokenId);
+      }
+    }
+  }
+  return tokenIds;
+}
+
+function transferTokenOwnership(keyword, newOwnerKey) {
+  if (!keyword || !keyword.token) return;
+  const oldOwner = keyword.ownerKey;
+  if (oldOwner && state.containerTokens.has(oldOwner)) {
+    const set = state.containerTokens.get(oldOwner);
+    set.delete(keyword.id);
+    if (!set.size) {
+      state.containerTokens.delete(oldOwner);
+    }
+  }
+  keyword.ownerKey = newOwnerKey;
+  if (!newOwnerKey) return;
+  let set = state.containerTokens.get(newOwnerKey);
+  if (!set) {
+    set = new Set();
+    state.containerTokens.set(newOwnerKey, set);
+  }
+  set.add(keyword.id);
+}
+
+function getSourceKeywordSet(keywordIds) {
+  const set = new Set();
+  for (const keywordId of keywordIds || []) {
+    const keyword = state.keywords.get(keywordId);
+    if (!keyword) continue;
+    if (keyword.token && keyword.sourceKeywordId) {
+      set.add(keyword.sourceKeywordId);
+    } else if (keyword.id) {
+      set.add(keyword.id);
+    }
+  }
+  return set;
 }
 
 function extractKeywordTokens(text) {
@@ -486,6 +634,7 @@ const state = {
   spus: new Map(), // id -> { id, name, info, subtitleKeywords: [], skus: [] }
   keywordTypeColors: { ...DEFAULT_TYPE_COLORS },
   pendingKeywords: [],
+  containerTokens: new Map(),
   settings: {
     skuTitleLimit: DEFAULT_SKU_TITLE_LIMIT,
     subtitleLimit: DEFAULT_SUBTITLE_LIMIT,
@@ -752,6 +901,7 @@ let keywordCounter = 0;
 let spuCounter = 0;
 let skuCounter = 0;
 let pendingKeywordCounter = 0;
+let tokenCounter = 0;
 
 const topNav = document.querySelector('.top-nav');
 const libraryPanel = document.getElementById('library-section');
@@ -1116,14 +1266,29 @@ function createKeywordPill(keyword, { allowRemove, context } = {}) {
   const pill = keywordPillTemplate.content.firstElementChild.cloneNode(true);
   pill.dataset.keywordId = keyword.id;
   pill.dataset.keywordType = keyword.type || 'core';
-  pill.style.background = keyword.color || state.keywordTypeColors[keyword.type] || '#4c6ef5';
+  const isToken = Boolean(keyword.token);
+  if (isToken) {
+    pill.classList.add('token-pill');
+  }
+  const background = isToken
+    ? '#ffffff'
+    : keyword.color || state.keywordTypeColors[keyword.type] || '#4c6ef5';
+  pill.style.background = background;
+  if (keyword.textColor) {
+    pill.style.color = keyword.textColor;
+  } else if (isToken) {
+    pill.style.color = '#1f2933';
+  }
   pill.querySelector('.keyword-label').textContent = keyword.text;
   const metaParts = [];
   if (keyword.heat) metaParts.push(`热度: ${keyword.heat}`);
   if (keyword.rank) metaParts.push(`排名: ${keyword.rank}`);
   const metaEl = pill.querySelector('.keyword-meta');
   if (metaEl) {
-    if (metaParts.length) {
+    if (isToken) {
+      metaEl.textContent = '';
+      metaEl.hidden = true;
+    } else if (metaParts.length) {
       metaEl.textContent = metaParts.join(' | ');
       metaEl.hidden = false;
     } else {
@@ -1148,6 +1313,9 @@ function createKeywordPill(keyword, { allowRemove, context } = {}) {
           const index = collection.indexOf(keywordId);
           if (index < 0) return;
           collection.splice(index, 1);
+          if (keyword.token) {
+            unregisterTokenKeyword(keyword.id);
+          }
           renderSpu(spuId);
         }
       });
@@ -1158,7 +1326,9 @@ function createKeywordPill(keyword, { allowRemove, context } = {}) {
 
   const editBtn = pill.querySelector('.pill-edit');
   if (editBtn) {
-    if (isLibrary && !keyword.fixed) {
+    if (isToken) {
+      editBtn.remove();
+    } else if (isLibrary && !keyword.fixed) {
       editBtn.addEventListener('click', (event) => {
         event.stopPropagation();
         openKeywordEditor(keyword.id);
@@ -1268,8 +1438,12 @@ function openKeywordEditor(keywordId) {
 function renderDropzoneKeywords(dropzone, keywords, optionsFactory) {
   dropzone.querySelectorAll('.keyword-pill').forEach((pill) => pill.remove());
   const placeholder = dropzone.querySelector('.placeholder');
+  const shouldAnnotate = dropzone.dataset.containerType !== 'search';
   if (!keywords || !keywords.length) {
     if (placeholder) placeholder.hidden = false;
+    if (shouldAnnotate) {
+      renderTitleAnnotations(dropzone, []);
+    }
     updateDropzoneMeta(dropzone, keywords);
     return;
   }
@@ -1284,7 +1458,146 @@ function renderDropzoneKeywords(dropzone, keywords, optionsFactory) {
     const pill = createKeywordPill(keyword, options);
     dropzone.appendChild(pill);
   }
+  if (shouldAnnotate) {
+    renderTitleAnnotations(dropzone, keywords);
+  }
   updateDropzoneMeta(dropzone, keywords);
+}
+
+function buildWordEntriesFromKeywordIds(keywordIds) {
+  const entries = [];
+  for (const keywordId of keywordIds || []) {
+    const keyword = state.keywords.get(keywordId);
+    if (!keyword) continue;
+    const words = splitKeywordIntoWords(keyword.text);
+    if (!words.length) continue;
+    for (const word of words) {
+      const normalized = normalizeWordForMatch(word);
+      if (!normalized) continue;
+      entries.push({
+        text: word,
+        normalized,
+        keywordId,
+      });
+    }
+  }
+  return entries;
+}
+
+function findKeywordMatches(wordEntries) {
+  if (!wordEntries.length) return [];
+  const normalizedWords = wordEntries.map((entry) => entry.normalized);
+  const matches = [];
+  for (const keyword of state.keywords.values()) {
+    if (!keyword || keyword.virtual || keyword.token) continue;
+    const words = splitKeywordIntoWords(keyword.text);
+    const normalized = words.map((word) => normalizeWordForMatch(word)).filter(Boolean);
+    if (!normalized.length || normalized.length > normalizedWords.length) continue;
+    for (let i = 0; i <= normalizedWords.length - normalized.length; i += 1) {
+      let matched = true;
+      for (let j = 0; j < normalized.length; j += 1) {
+        if (normalizedWords[i + j] !== normalized[j]) {
+          matched = false;
+          break;
+        }
+      }
+      if (matched) {
+        matches.push({
+          keyword,
+          start: i,
+          end: i + normalized.length - 1,
+          length: normalized.length,
+          wordIndices: normalized.map((_, index) => i + index),
+        });
+      }
+    }
+  }
+  return matches;
+}
+
+function renderTitleAnnotations(dropzone, keywordIds) {
+  if (!dropzone) return;
+  const container = dropzone.parentElement?.querySelector('.title-annotation');
+  if (!container) return;
+  const textEl = container.querySelector('.annotation-text');
+  const rowsEl = container.querySelector('.annotation-rows');
+  if (rowsEl) {
+    rowsEl.innerHTML = '';
+  }
+  if (textEl) {
+    textEl.textContent = '';
+  }
+
+  const entries = buildWordEntriesFromKeywordIds(keywordIds);
+  if (!entries.length || !rowsEl || !textEl) {
+    container.hidden = true;
+    return;
+  }
+
+  const matches = findKeywordMatches(entries);
+  if (!matches.length) {
+    container.hidden = true;
+    return;
+  }
+
+  const baseText = entries.map((entry) => entry.text).join(' ');
+  textEl.textContent = baseText;
+
+  const sortedMatches = matches
+    .slice()
+    .sort((a, b) => {
+      if (a.start !== b.start) return a.start - b.start;
+      if (b.length !== a.length) return b.length - a.length;
+      return a.keyword.text.localeCompare(b.keyword.text, 'zh-Hans-CN');
+    });
+
+  const rows = [];
+  for (const match of sortedMatches) {
+    let targetRow = rows.find((row) => match.wordIndices.every((index) => !row.occupied.has(index)));
+    if (!targetRow) {
+      targetRow = { occupied: new Set(), matches: [] };
+      rows.push(targetRow);
+    }
+    targetRow.matches.push(match);
+    for (const index of match.wordIndices) {
+      targetRow.occupied.add(index);
+    }
+  }
+
+  for (const row of rows) {
+    const rowEl = document.createElement('div');
+    rowEl.className = 'annotation-row';
+    const matchMap = new Map();
+    for (const match of row.matches) {
+      for (const index of match.wordIndices) {
+        matchMap.set(index, match);
+      }
+    }
+    for (let i = 0; i < entries.length; i += 1) {
+      const span = document.createElement('span');
+      span.className = 'annotation-word';
+      span.textContent = entries[i].text;
+      const match = matchMap.get(i);
+      if (match) {
+        span.classList.add('match');
+        if (i === match.wordIndices[0]) {
+          const rankText = match.keyword.rank ? `排名: ${match.keyword.rank}` : '排名: --';
+          const heatText = match.keyword.heat ? `热度: ${match.keyword.heat}` : '热度: --';
+          const metaText = `${rankText} | ${heatText}`;
+          const metaEl = document.createElement('span');
+          metaEl.className = 'match-meta';
+          metaEl.textContent = metaText;
+          span.appendChild(metaEl);
+        }
+      } else {
+        span.classList.add('placeholder');
+      }
+      rowEl.appendChild(span);
+    }
+    rowsEl.appendChild(rowEl);
+  }
+
+  container.hidden = false;
 }
 
 function getCharacterLimit(containerType) {
@@ -1793,6 +2106,10 @@ function moveKeywordBetweenContainers(
   }
 
   toCollection.splice(0, toCollection.length, ...snapshot);
+  const keywordObj = state.keywords.get(keywordId);
+  if (keywordObj?.token) {
+    transferTokenOwnership(keywordObj, getContainerKey(toSpuId, toContainerType, toContainerId));
+  }
   renderSpu(fromSpuId);
   if (fromSpuId !== toSpuId) {
     renderSpu(toSpuId);
@@ -1909,11 +2226,13 @@ function addSku(spuId, { name }) {
 function removeSku(spuId, skuId) {
   const spu = state.spus.get(spuId);
   if (!spu) return;
+  cleanupTokensForOwner(getContainerKey(spuId, 'sku', skuId));
   spu.skus = spu.skus.filter((sku) => sku.id !== skuId);
   renderSpu(spuId);
 }
 
 function deleteSpu(spuId) {
+  cleanupTokensForSpu(spuId);
   state.spus.delete(spuId);
   renderSpuList();
 }
@@ -2399,10 +2718,19 @@ async function autoGenerateTitles(spuId) {
   }
 
   const targets = [
-    { type: 'subtitle', apply: (keywords) => { spu.subtitleKeywords = keywords; } },
+    {
+      type: 'subtitle',
+      containerType: 'subtitle',
+      containerId: 'subtitle',
+      apply: (keywords) => {
+        spu.subtitleKeywords = keywords;
+      },
+    },
     ...spu.skus.map((sku) => ({
       type: 'sku',
       sku,
+      containerType: 'sku',
+      containerId: sku.id,
       apply: (keywords) => {
         sku.titleKeywords = keywords;
       },
@@ -2457,7 +2785,15 @@ async function autoGenerateTitles(spuId) {
       ? combination.ids.concat(colorKeywordIds)
       : combination.ids.slice();
 
-    assignments.push(() => target.apply(finalIds));
+    assignments.push(() => {
+      const appliedIds = assignTokensToContainer(
+        spu.id,
+        target.containerType,
+        target.containerId,
+        finalIds,
+      );
+      target.apply(appliedIds);
+    });
   }
 
   for (const apply of assignments) {
@@ -2495,7 +2831,7 @@ async function generateSearchTerms(spuId, skuId, options = {}) {
 
   const colorText = sku.colorText || '';
 
-  const usedKeywordIds = new Set(sku.titleKeywords || []);
+  const usedKeywordIds = getSourceKeywordSet(sku.titleKeywords);
   const pools = {};
   for (const { value } of KEYWORD_TYPES) {
     pools[value] = [];
@@ -3367,6 +3703,7 @@ clearLibraryBtn.addEventListener('click', () => {
   if (confirm('确定要清空所有关键词吗？该操作不可恢复。')) {
     state.keywords.clear();
     state.pendingKeywords = [];
+    state.containerTokens.clear();
     ensureFixedKeywords();
     for (const spu of state.spus.values()) {
       spu.subtitleKeywords = [];

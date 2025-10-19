@@ -532,6 +532,18 @@ button.text.danger:hover {
   min-height: 32px;
 }
 
+.keyword-pill.token-pill {
+  background: #ffffff !important;
+  color: var(--text-primary);
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  box-shadow: none;
+}
+
+.keyword-pill.token-pill .pill-controls button {
+  background: rgba(0, 0, 0, 0.08);
+  color: inherit;
+}
+
 .keyword-list .keyword-pill {
   width: 100%;
 }
@@ -632,10 +644,78 @@ button.text.danger:hover {
   display: grid;
 }
 
+.title-dropzone .keyword-pill.token-pill {
+  background: #ffffff !important;
+  border: 1px solid rgba(0, 0, 0, 0.16);
+}
+
 .title-dropzone .placeholder {
   color: var(--text-secondary);
   opacity: 0.7;
   margin: 0;
+}
+
+.title-annotation {
+  margin-top: 6px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(76, 110, 245, 0.18);
+  background: rgba(76, 110, 245, 0.06);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.title-annotation[hidden] {
+  display: none;
+}
+
+.title-annotation .annotation-text {
+  font-size: 0.76rem;
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+
+.title-annotation .annotation-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.annotation-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 0.7rem;
+}
+
+.annotation-word {
+  position: relative;
+  display: inline-flex;
+  align-items: flex-end;
+  padding-bottom: 2px;
+  color: transparent;
+  border-bottom: 2px solid transparent;
+  text-shadow: 0 0 0 transparent;
+}
+
+.annotation-word.match {
+  border-color: rgba(224, 49, 49, 0.85);
+}
+
+.annotation-word .match-meta {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  transform: translateY(2px);
+  font-size: 0.56rem;
+  color: rgba(224, 49, 49, 0.9);
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.annotation-word.placeholder {
+  border-color: transparent;
 }
 
 .title-dropzone .dropzone-footer {
