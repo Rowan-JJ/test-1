@@ -406,6 +406,14 @@ button.text.danger:hover {
 
 .library-actions {
   display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.library-main-actions {
+  display: flex;
   gap: 8px;
   flex-wrap: wrap;
   align-items: center;
@@ -1279,6 +1287,16 @@ button.text.danger:hover {
   min-width: 118px;
   padding: 8px 12px;
   font-size: 0.82rem;
+}
+
+#preview-ai-review {
+  background: rgba(250, 200, 60, 0.24);
+  color: #8a5a00;
+  border: 1px solid rgba(250, 200, 60, 0.45);
+}
+
+#preview-ai-review:hover {
+  background: rgba(250, 200, 60, 0.32);
 }
 
 .preview-list {

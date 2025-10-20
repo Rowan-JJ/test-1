@@ -3749,7 +3749,7 @@ async function reviewPreviewWithAI() {
         ? `以下品牌词需视为问题：${blockedBrands}。`
         : '无额外品牌黑名单。',
       '任一单词（忽略大小写与标点）在同一条内容中出现次数不得超过 2 次，完全相同才算重复（bodysuit 与 body suit 视为不同）。',
-      'Search Term 应保持全部小写。',
+      'Search Term 应保持全部小写（数字视为小写字符，可保留）。',
       '无需修改文本，只需给出是否合规的判断。',
     ];
 
