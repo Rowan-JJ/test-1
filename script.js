@@ -70,8 +70,21 @@ const COLOR_LABEL_TO_KEY = Object.entries(COLOR_KEY_ALIASES).reduce((map, [key, 
 const WORD_REPEAT_LIMIT = 2;
 
 const BANNED_AMAZON_WORDS = new Set(['best', 'sexy', 'deal', 'sell', 'cheapest', 'free']);
+const BANNED_AMAZON_WATCHLIST = new Set([
+  'discount',
+  'promotion',
+  'promo',
+  'clearance',
+  'sale',
+  'coupon',
+  'voucher',
+  'giveaway',
+  'bonus',
+  'guarantee',
+  'warranty',
+]);
 const BRAND_WHITELIST = new Set(['popilush']);
-const BRAND_BLACKLIST = new Set(['oeak', 'spanx', 'skims', 'shapermint', 'yummie', 'hanes', 'maidenform']);
+const BRAND_BLACKLIST = new Set(['oeak', 'spanx', 'skims', 'shapermint', 'yummie', 'hanes', 'maidenform', 'success']);
 
 const TITLE_PREPOSITIONS = new Set([
   'a',
@@ -3603,6 +3616,17 @@ function createPreviewItem(item, label, bucketKey) {
       icon.setAttribute('aria-label', '审查通过');
       icon.textContent = '✓';
       box.appendChild(icon);
+    } else if (review.status === 'warn') {
+      box.classList.add('status-warn');
+      const icon = document.createElement('span');
+      icon.className = 'preview-status-icon warn';
+      icon.setAttribute('aria-label', '请注意');
+      icon.textContent = '?';
+      box.appendChild(icon);
+      if (review.message) {
+        box.dataset.issue = review.message;
+        box.title = review.message;
+      }
     } else if (review.status === 'error') {
       box.classList.add('status-error');
       const icon = document.createElement('span');
@@ -3974,6 +3998,18 @@ function findBannedWordMatches(words) {
   return matches;
 }
 
+function findPotentialBannedWordMatches(words) {
+  const matches = [];
+  if (!Array.isArray(words)) return matches;
+  for (const word of words) {
+    if (BANNED_AMAZON_WORDS.has(word)) continue;
+    if (BANNED_AMAZON_WATCHLIST.has(word) && !matches.includes(word)) {
+      matches.push(word);
+    }
+  }
+  return matches;
+}
+
 function findOriginalWordInText(text, term) {
   if (!text || !term) return term;
   const pattern = new RegExp(`\b${escapeRegExp(term)}\b`, 'i');
@@ -3993,6 +4029,49 @@ function buildOtherIssueMessage(detail) {
   return '其他问题：请根据 DeepSeek 审查结果调整。';
 }
 
+function evaluateLocalIssues(context) {
+  const errors = [];
+  const warns = [];
+  const originalText = (context.text || '').toString();
+  const normalizedText = (context.normalizedText || originalText).toString();
+  if (!context.words) {
+    context.words = extractWordsForReview(normalizedText);
+  }
+  if (!context.wordCounts) {
+    context.wordCounts = countWords(context.words);
+  }
+
+  const brandMatches = findBrandMatchesInText(originalText);
+  for (const brand of brandMatches) {
+    const display = findOriginalWordInText(originalText, brand) || brand;
+    errors.push(`品牌词违规：检测到品牌词“${display}”`);
+  }
+
+  const bannedMatches = findBannedWordMatches(context.words);
+  for (const word of bannedMatches) {
+    const display = findOriginalWordInText(originalText, word) || word;
+    errors.push(`违禁词：检测到违禁词“${display}”`);
+  }
+
+  const potentialMatches = findPotentialBannedWordMatches(context.words);
+  for (const word of potentialMatches) {
+    const display = findOriginalWordInText(originalText, word) || word;
+    warns.push(`疑似违禁词：${display} 可能为违禁词，请注意核对`);
+  }
+
+  for (const [word, count] of context.wordCounts.entries()) {
+    if (count > WORD_REPEAT_LIMIT) {
+      const display = findOriginalWordInText(originalText, word) || word;
+      errors.push(`单词重复：${display} 出现 ${count} 次，超过允许的 ${WORD_REPEAT_LIMIT} 次`);
+    } else if (count === WORD_REPEAT_LIMIT) {
+      const display = findOriginalWordInText(originalText, word) || word;
+      warns.push(`单词重复两次：${display} 已出现 ${WORD_REPEAT_LIMIT} 次，请注意`);
+    }
+  }
+
+  return { errors, warns };
+}
+
 function evaluateAiIssue(issue, context) {
   if (!issue || !context) return null;
   const originalText = (context.text || '').toString();
@@ -4006,7 +4085,7 @@ function evaluateAiIssue(issue, context) {
       const length = measureTextCharacters(originalText);
       const limitValue = typeof issue.limit === 'number' ? issue.limit : limit;
       if (length > limitValue) {
-        return `字数超限：当前 ${length} 字符，超过上限 ${limitValue} 字符`;
+        return { severity: 'error', message: `字数超限：当前 ${length} 字符，超过上限 ${limitValue} 字符` };
       }
       return null;
     }
@@ -4019,18 +4098,27 @@ function evaluateAiIssue(issue, context) {
         selected = matches[0];
       }
       const display = findOriginalWordInText(originalText, selected) || selected;
-      return `品牌词违规：检测到品牌词“${display}”`;
+      return { severity: 'error', message: `品牌词违规：检测到品牌词“${display}”` };
     }
     case 'BANNED_WORD': {
       const matches = findBannedWordMatches(context.words);
-      if (!matches.length) return null;
       const target = (issue.term || '').toLowerCase();
-      let selected = matches.find((item) => item === target);
-      if (!selected) {
-        selected = matches[0];
+      if (matches.length) {
+        let selected = matches.find((item) => item === target);
+        if (!selected) {
+          selected = matches[0];
+        }
+        const display = findOriginalWordInText(originalText, selected) || selected;
+        return { severity: 'error', message: `违禁词：检测到违禁词“${display}”` };
       }
-      const display = findOriginalWordInText(originalText, selected) || selected;
-      return `违禁词：检测到违禁词“${display}”`;
+      if (target) {
+        const display = findOriginalWordInText(originalText, target) || issue.term || target;
+        return { severity: 'warn', message: `疑似违禁词：${display} 可能为违禁词，请注意核对` };
+      }
+      if (issue.detail) {
+        return { severity: 'warn', message: issue.detail };
+      }
+      return null;
     }
     case 'WORD_REPEAT': {
       if (!context.wordCounts) {
@@ -4039,30 +4127,49 @@ function evaluateAiIssue(issue, context) {
       const counts = context.wordCounts;
       if (!counts.size) return null;
       const target = (issue.term || '').toLowerCase();
+      const warnWords = [];
       if (target) {
         const count = counts.get(target);
         if (count && count > WORD_REPEAT_LIMIT) {
           const display = findOriginalWordInText(originalText, target) || target;
-          return `单词重复：${display} 出现 ${count} 次，超过允许的 ${WORD_REPEAT_LIMIT} 次`;
+          return {
+            severity: 'error',
+            message: `单词重复：${display} 出现 ${count} 次，超过允许的 ${WORD_REPEAT_LIMIT} 次`,
+          };
         }
-        return null;
+        if (count && count === WORD_REPEAT_LIMIT) {
+          warnWords.push(findOriginalWordInText(originalText, target) || target);
+        }
+      } else {
+        for (const [word, count] of counts.entries()) {
+          if (count > WORD_REPEAT_LIMIT) {
+            const display = findOriginalWordInText(originalText, word) || word;
+            return {
+              severity: 'error',
+              message: `单词重复：${display} 出现 ${count} 次，超过允许的 ${WORD_REPEAT_LIMIT} 次`,
+            };
+          }
+          if (count === WORD_REPEAT_LIMIT) {
+            warnWords.push(findOriginalWordInText(originalText, word) || word);
+          }
+        }
       }
-      for (const [word, count] of counts.entries()) {
-        if (count > WORD_REPEAT_LIMIT) {
-          const display = findOriginalWordInText(originalText, word) || word;
-          return `单词重复：${display} 出现 ${count} 次，超过允许的 ${WORD_REPEAT_LIMIT} 次`;
-        }
+      if (warnWords.length) {
+        return {
+          severity: 'warn',
+          message: `单词重复两次：${warnWords.join('、')} 已出现 ${WORD_REPEAT_LIMIT} 次，请注意`,
+        };
       }
       return null;
     }
     case 'CASE': {
       if (context.type === 'search' && hasUppercaseForSearch(originalText)) {
-        return '大小写错误：Search Term 应全部小写，请修正大写字母';
+        return { severity: 'error', message: '大小写错误：Search Term 应全部小写，请修正大写字母' };
       }
       return null;
     }
     default: {
-      return buildOtherIssueMessage(issue.detail);
+      return { severity: 'error', message: buildOtherIssueMessage(issue.detail) };
     }
   }
 }
@@ -4078,16 +4185,38 @@ function evaluateReviewAgainstContext(review, context) {
     words: context.words ? context.words.slice() : null,
     wordCounts: context.wordCounts ? new Map(context.wordCounts) : null,
   };
-  const messages = [];
+
+  const errorMessages = new Set();
+  const warnMessages = new Set();
+
   for (const issue of issues) {
-    const message = evaluateAiIssue(issue, contextState);
-    if (message) {
-      messages.push(message);
+    const evaluation = evaluateAiIssue(issue, contextState);
+    if (evaluation) {
+      if (evaluation.severity === 'error' && evaluation.message) {
+        errorMessages.add(evaluation.message);
+      } else if (evaluation.severity === 'warn' && evaluation.message) {
+        warnMessages.add(evaluation.message);
+      }
     }
   }
-  if (messages.length) {
-    const unique = Array.from(new Set(messages));
-    return { status: 'error', message: unique.join('；') };
+
+  const local = evaluateLocalIssues(contextState);
+  for (const message of local.errors) {
+    if (message) {
+      errorMessages.add(message);
+    }
+  }
+  for (const message of local.warns) {
+    if (message && !errorMessages.has(message)) {
+      warnMessages.add(message);
+    }
+  }
+
+  if (errorMessages.size) {
+    return { status: 'error', message: Array.from(errorMessages).join('；') };
+  }
+  if (warnMessages.size) {
+    return { status: 'warn', message: Array.from(warnMessages).join('；') };
   }
   return { status: 'ok', message: '' };
 }
@@ -4174,7 +4303,8 @@ async function reviewPreviewWithAI() {
       '父标题字符数不得超过 125，SKU 标题不得超过 200，Search Term 不得超过 250（均包含空格）。',
       brandRule,
       bannedRule,
-      '任一单词（忽略大小写与标点）在同一条内容中出现次数不得超过 2 次（bodysuit 与 body suit 视为不同单词）。',
+      '任一单词（忽略大小写与标点）在同一条内容中出现次数不得超过 2 次（bodysuit 与 body suit 视为不同单词），统计时需包含非相邻重复。',
+      '如检测到常见女装品牌（例如 OEAK、SUCCESS、SPANX 等，忽略大小写），视为其他品牌词问题。',
       'Search Term 必须全部为小写字母，数字视为小写字符，可保留。',
       '仅根据实际文本判断，不要臆测不存在的问题。',
       '对每个问题给出明确原因，detail 字段需使用“问题类型：具体说明”的中文描述。',

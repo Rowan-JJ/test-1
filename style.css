@@ -1395,6 +1395,11 @@ button.text.danger:hover {
   border-color: rgba(66, 186, 150, 0.55);
 }
 
+.preview-item-box.status-warn {
+  background: rgba(250, 176, 5, 0.16);
+  border-color: rgba(250, 176, 5, 0.45);
+}
+
 .preview-item-box.status-error {
   background: rgba(224, 49, 49, 0.12);
   border-color: rgba(224, 49, 49, 0.45);
@@ -1433,6 +1438,11 @@ button.text.danger:hover {
 
 .preview-status-icon.success {
   background: rgba(66, 186, 150, 0.9);
+}
+
+.preview-status-icon.warn {
+  background: rgba(250, 176, 5, 0.9);
+  color: #312507;
 }
 
 .preview-status-icon.error {
