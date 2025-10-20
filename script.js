@@ -2739,6 +2739,8 @@ function buildTitleCombination({
     scene: 2,
   };
 
+  const allowRepeatMap = {};
+
   const slotPlan = [
     { type: 'core' },
     { type: 'feature' },
@@ -2768,16 +2770,40 @@ function buildTitleCombination({
     const selections = {};
     let selectionFailed = false;
 
+    const heatComparator = (a, b) => {
+      const heatDiff = getKeywordHeatValue(b) - getKeywordHeatValue(a);
+      if (heatDiff !== 0) return heatDiff;
+      return a.text.localeCompare(b.text, 'zh-Hans-CN');
+    };
+
     for (const [type, count] of Object.entries(requiredCounts)) {
       const pool = pools[type];
-      if (!Array.isArray(pool) || pool.length < count) {
+      if (!Array.isArray(pool) || !pool.length) {
         return null;
       }
-      const shuffled = shuffle(pool);
+      const allowRepeat = pool.length < count;
+      allowRepeatMap[type] = allowRepeat;
+      const basePool = shuffle(pool.slice());
+      const expandedPool = basePool.slice();
+      if (allowRepeat) {
+        const sortedByHeat = pool.slice().sort(heatComparator);
+        while (expandedPool.length < count) {
+          for (const keyword of sortedByHeat) {
+            expandedPool.push(keyword);
+            if (expandedPool.length >= count) {
+              break;
+            }
+          }
+          if (!sortedByHeat.length) {
+            break;
+          }
+        }
+      }
       const chosen = [];
-      for (const keyword of shuffled) {
+      for (const keyword of expandedPool) {
         if (chosen.length >= count) break;
-        if (!keyword || chosen.some((item) => item.id === keyword.id)) continue;
+        if (!keyword) continue;
+        if (!allowRepeat && chosen.some((item) => item.id === keyword.id)) continue;
         if (!isSubtitle && colorText && keywordConflictsWithColor(keyword, colorText)) continue;
         chosen.push(keyword);
       }
@@ -2800,7 +2826,7 @@ function buildTitleCombination({
 
     const selectedIds = [brandKeyword.id];
     const selectedWords = [];
-    const usedIds = new Set(selectedIds);
+    const usedCounts = new Map([[brandKeyword.id, 1]]);
     const wordCounts = new Map(baseWordCounts);
     const typeCursors = { core: 0, feature: 0, scene: 0 };
 
@@ -2810,7 +2836,17 @@ function buildTitleCombination({
       const cursor = typeCursors[slot.type] || 0;
       const keyword = list?.[cursor];
       typeCursors[slot.type] = cursor + 1;
-      if (!keyword || usedIds.has(keyword.id)) {
+      if (!keyword) {
+        invalid = true;
+        break;
+      }
+      const repeatAllowed = !!allowRepeatMap[slot.type];
+      const currentUsage = usedCounts.get(keyword.id) || 0;
+      if (!repeatAllowed && currentUsage > 0) {
+        invalid = true;
+        break;
+      }
+      if (repeatAllowed && currentUsage >= WORD_REPEAT_LIMIT) {
         invalid = true;
         break;
       }
@@ -2835,7 +2871,7 @@ function buildTitleCombination({
 
       selectedWords.push(keyword);
       selectedIds.push(keyword.id);
-      usedIds.add(keyword.id);
+      usedCounts.set(keyword.id, currentUsage + 1);
       applyKeywordWordCount(keyword, wordCounts);
     }
 
@@ -2893,16 +2929,16 @@ async function autoGenerateTitles(spuId) {
     }
   }
 
-  if ((pools.core || []).length < 2) {
-    showToast('请至少添加 2 个核心词', true);
+  if ((pools.core || []).length < 1) {
+    showToast('请至少添加 1 个核心词', true);
     return;
   }
-  if ((pools.feature || []).length < 3) {
-    showToast('请至少添加 3 个特征词', true);
+  if ((pools.feature || []).length < 1) {
+    showToast('请至少添加 1 个特征词', true);
     return;
   }
-  if ((pools.scene || []).length < 2) {
-    showToast('请至少添加 2 个场景词', true);
+  if ((pools.scene || []).length < 1) {
+    showToast('请至少添加 1 个场景词', true);
     return;
   }
 
@@ -3001,6 +3037,15 @@ async function generateSearchTerms(spuId, skuId, options = {}) {
     }
     return false;
   }
+  const titleKeywordIds = Array.isArray(sku.titleKeywords)
+    ? sku.titleKeywords.filter((id) => state.keywords.has(id))
+    : [];
+  if (!titleKeywordIds.length) {
+    if (!options.silent) {
+      showToast('请先生成标题', true);
+    }
+    return false;
+  }
   if (!Array.isArray(sku.searchKeywords)) {
     sku.searchKeywords = [];
   }
@@ -3017,7 +3062,7 @@ async function generateSearchTerms(spuId, skuId, options = {}) {
 
   const colorText = sku.colorText || '';
 
-  const usedKeywordIds = getSourceKeywordSet(sku.titleKeywords);
+  const usedKeywordIds = getSourceKeywordSet(titleKeywordIds);
   const pools = {};
   for (const { value } of KEYWORD_TYPES) {
     pools[value] = [];
