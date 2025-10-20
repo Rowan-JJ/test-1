@@ -186,6 +186,9 @@
               <span data-type="scene"><i></i>场景词</span>
               <span data-type="minor"><i></i>小语种词</span>
             </div>
+            <p class="hint library-instruction">
+              拖动关键词滑块到任意 SKU 的标题或 Search Term 框中，或单击复制信息。
+            </p>
           </div>
           <div class="library-actions">
             <div class="library-main-actions">
@@ -196,7 +199,6 @@
           </div>
         </div>
         <div class="library-body" id="library-body">
-          <p class="hint">拖动关键词滑块到任意 SKU 的标题或 Search Term 框中，或单击复制信息。</p>
           <div class="keyword-scroll">
             <div class="keyword-categories" id="keyword-categories">
               <div class="keyword-category" data-type="core">
@@ -242,30 +244,15 @@
     <section class="panel preview-panel" id="preview-section">
       <div class="preview-header">
         <h2>标题与 Search Term 预览区</h2>
-        <button id="preview-ai-review" class="secondary" type="button">AI 审查</button>
-      </div>
-      <p class="hint">使用下方的批量导出按钮汇总全部标题与 Search Term，可执行复制、词频统计与 AI 审查。</p>
-      <div class="preview-toolbar">
-        <div class="preview-group">
-          <label for="title-preview-format">标题导出方式</label>
-          <select id="title-preview-format">
-            <option value="simple">简化（仅文本）</option>
-            <option value="detailed">完整（含标识）</option>
-          </select>
-          <button id="title-preview-export" class="secondary bulk-action" type="button">批量导出</button>
-          <button id="title-preview-copy" class="secondary" type="button">复制</button>
-        </div>
-        <div class="preview-group">
-          <label for="search-preview-format">Search Term 导出方式</label>
-          <select id="search-preview-format">
-            <option value="simple">简化（仅文本）</option>
-            <option value="detailed">完整（含标识）</option>
-          </select>
-          <button id="search-preview-export" class="secondary bulk-action" type="button">批量导出</button>
-          <button id="search-preview-copy" class="secondary" type="button">复制</button>
+        <div class="preview-actions">
+          <button id="preview-export" class="secondary bulk-action" type="button">文案导出</button>
+          <button id="preview-ai-review" class="secondary" type="button">AI 审查</button>
+          <button id="preview-copy-titles" class="secondary" type="button">复制标题</button>
+          <button id="preview-copy-search" class="secondary" type="button">复制 Search Term</button>
         </div>
       </div>
-      <p class="hint" id="preview-empty">暂未生成标题或 Search Term，请先批量导出。</p>
+      <p class="hint">点击“文案导出”按钮可汇总全部标题与 Search Term，随后可复制或执行 AI 审查。</p>
+      <p class="hint" id="preview-empty">暂未生成标题或 Search Term，请先执行文案导出。</p>
       <div class="preview-list" id="preview-list"></div>
       <div class="preview-frequency-grid">
         <div class="preview-block" id="title-frequency-block" hidden>

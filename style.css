@@ -427,6 +427,14 @@ button.text.danger:hover {
   flex: 1 1 auto;
 }
 
+.library-instruction {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  flex: 1 1 220px;
+  align-self: center;
+}
+
 .library-legend {
   display: flex;
   gap: 12px;
@@ -531,7 +539,7 @@ button.text.danger:hover {
   padding: 6px 10px;
   border-radius: 10px;
   color: white;
-  font-size: 0.72rem;
+  font-size: 0.78rem;
   font-weight: 600;
   cursor: grab;
   position: relative;
@@ -570,8 +578,10 @@ button.text.danger:hover {
 }
 
 .keyword-pill .keyword-label {
-  white-space: normal;
-  word-break: break-word;
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .keyword-pill .keyword-meta {
@@ -1250,39 +1260,17 @@ button.text.danger:hover {
   flex-wrap: wrap;
 }
 
-.preview-header button {
-  min-width: 120px;
-}
-
-.preview-toolbar {
+.preview-actions {
   display: flex;
+  align-items: center;
   flex-wrap: wrap;
-  gap: 16px;
-  align-items: center;
-}
-
-.preview-group {
-  display: inline-flex;
-  align-items: center;
   gap: 8px;
-  flex-wrap: wrap;
 }
 
-.preview-group label {
-  color: var(--text-secondary);
-  font-weight: 600;
-  font-size: 0.82rem;
+.preview-header button {
+  min-width: 110px;
 }
 
-.preview-group select {
-  padding: 6px 10px;
-  border-radius: 8px;
-  border: 1px solid var(--border);
-  font-size: 0.85rem;
-  min-width: 140px;
-}
-
-.preview-toolbar button,
 .preview-frequency-actions button {
   min-width: 118px;
   padding: 8px 12px;

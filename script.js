@@ -1020,12 +1020,12 @@ const previewElements = {
   container: document.getElementById('preview-list'),
   empty: document.getElementById('preview-empty'),
   aiButton: document.getElementById('preview-ai-review'),
+  exportBtn: document.getElementById('preview-export'),
+  copyTitlesBtn: document.getElementById('preview-copy-titles'),
+  copySearchBtn: document.getElementById('preview-copy-search'),
 };
 
 const titlePreviewElements = {
-  formatSelect: document.getElementById('title-preview-format'),
-  exportBtn: document.getElementById('title-preview-export'),
-  copyBtn: document.getElementById('title-preview-copy'),
   frequencyBlock: document.getElementById('title-frequency-block'),
   frequencyList: document.getElementById('title-preview-frequency-list'),
   frequencyBtn: document.getElementById('title-preview-frequency'),
@@ -1033,9 +1033,6 @@ const titlePreviewElements = {
 };
 
 const searchPreviewElements = {
-  formatSelect: document.getElementById('search-preview-format'),
-  exportBtn: document.getElementById('search-preview-export'),
-  copyBtn: document.getElementById('search-preview-copy'),
   frequencyBlock: document.getElementById('search-frequency-block'),
   frequencyList: document.getElementById('search-preview-frequency-list'),
   frequencyBtn: document.getElementById('search-preview-frequency'),
@@ -1742,15 +1739,39 @@ function getContainerLabel(containerType) {
 
 function buildTextFromKeywordIds(keywordIds) {
   return (keywordIds || [])
-    .map((keywordId) => state.keywords.get(keywordId)?.text)
+    .map((keywordId) => {
+      const keyword = state.keywords.get(keywordId);
+      if (!keyword) return '';
+      return (keyword.text || '').trim();
+    })
     .filter(Boolean)
     .join(' ');
+}
+
+function measureKeywordIdsLength(keywordIds) {
+  if (!Array.isArray(keywordIds) || !keywordIds.length) {
+    return 0;
+  }
+  let length = 0;
+  let hasPrevious = false;
+  for (const keywordId of keywordIds) {
+    const keyword = state.keywords.get(keywordId);
+    if (!keyword) continue;
+    const text = (keyword.text || '').trim();
+    if (!text) continue;
+    if (hasPrevious) {
+      length += 1;
+    }
+    length += text.length;
+    hasPrevious = true;
+  }
+  return length;
 }
 
 function computeTitleCandidateLength(ids, { isSubtitle, colorKeywordIds } = {}) {
   const trailingIds = !isSubtitle && Array.isArray(colorKeywordIds) ? colorKeywordIds : [];
   const finalIds = trailingIds.length ? ids.concat(trailingIds) : ids;
-  return buildTextFromKeywordIds(finalIds).length;
+  return measureKeywordIdsLength(finalIds);
 }
 
 function updateDropzoneMeta(dropzone, keywordIds) {
@@ -1766,7 +1787,7 @@ function updateDropzoneMeta(dropzone, keywordIds) {
     keywords = collection ? collection.slice() : [];
   }
   const text = buildTextFromKeywordIds(keywords);
-  const length = text.length;
+  const length = measureKeywordIdsLength(keywords);
   const counter = dropzone.querySelector('.char-counter');
   if (counter) {
     counter.textContent = `${length} / ${limit}`;
@@ -1802,10 +1823,11 @@ function refreshAllDropzoneMetas() {
 function validateContainerLength(spuId, containerType, containerId, keywords) {
   const limit = getCharacterLimit(containerType);
   const text = buildTextFromKeywordIds(keywords);
-  if (text.length > limit) {
+  const length = measureKeywordIdsLength(keywords);
+  if (length > limit) {
     const label = getContainerLabel(containerType);
     const labelPrefix = /[A-Za-z]/.test(label) ? `${label} ` : label;
-    showToast(`${labelPrefix}字符数超过限制（${text.length} / ${limit}）`, true);
+    showToast(`${labelPrefix}字符数超过限制（${length} / ${limit}）`, true);
     return false;
   }
   return true;
@@ -2652,7 +2674,7 @@ function updateSkuMeta(skuElement, sku) {
   const metaEl = skuElement.querySelector('.sku-meta');
   if (!metaEl) return;
   const limit = state.settings.skuTitleLimit || DEFAULT_SKU_TITLE_LIMIT;
-  const length = buildTextFromKeywordIds(sku.titleKeywords).length;
+  const length = measureKeywordIdsLength(sku.titleKeywords);
   metaEl.textContent = `字符：${length} / ${limit}`;
   metaEl.classList.toggle('over', length > limit);
 }
@@ -3113,8 +3135,7 @@ async function generateSearchTerms(spuId, skuId, options = {}) {
       }
     }
     const tentative = selected.concat(keyword.id);
-    const text = buildTextFromKeywordIds(tentative);
-    if (text.length > limit) return false;
+    if (measureKeywordIdsLength(tentative) > limit) return false;
     selected.push(keyword.id);
     selectedKeywords.push(keyword);
     selectedSet.add(keyword.id);
@@ -4176,38 +4197,33 @@ if (typeColorGrid) {
   });
 }
 
-if (titlePreviewElements.formatSelect) {
-  titlePreviewElements.formatSelect.value = getPreviewFormat('titles');
-  titlePreviewElements.formatSelect.addEventListener('change', () => {
-    const value = titlePreviewElements.formatSelect.value === 'detailed' ? 'detailed' : 'simple';
-    state.previewFormats.titles = value;
-    renderPreview();
-  });
-}
-
-if (searchPreviewElements.formatSelect) {
-  searchPreviewElements.formatSelect.value = getPreviewFormat('search');
-  searchPreviewElements.formatSelect.addEventListener('change', () => {
-    const value = searchPreviewElements.formatSelect.value === 'detailed' ? 'detailed' : 'simple';
-    state.previewFormats.search = value;
-    renderPreview();
-  });
-}
-
 renderPreview();
 
-if (titlePreviewElements.exportBtn) {
-  titlePreviewElements.exportBtn.addEventListener('click', () => {
-    const items = collectTitlePreviewItems();
-    if (!items.length) {
-      showToast('暂无可导出的标题', true);
+if (previewElements.exportBtn) {
+  previewElements.exportBtn.addEventListener('click', () => {
+    const titleItems = collectTitlePreviewItems();
+    const searchItems = collectSearchPreviewItems();
+    if (!titleItems.length && !searchItems.length) {
+      setPreviewItems('titles', []);
+      setPreviewItems('search', []);
+      showToast('暂无可导出的文案', true);
       return;
     }
-    setPreviewItems('titles', items);
-    const format = getPreviewFormat('titles');
-    const payload = formatPreviewItems(items, format, 'titles');
+    setPreviewItems('titles', titleItems);
+    setPreviewItems('search', searchItems);
+    showToast('文案已导出至预览区');
+  });
+}
+
+if (previewElements.copyTitlesBtn) {
+  previewElements.copyTitlesBtn.addEventListener('click', () => {
+    const payload = getPreviewCopyPayload('titles');
+    if (!payload) {
+      showToast('暂无可复制的标题', true);
+      return;
+    }
     navigator.clipboard?.writeText(payload).then(() => {
-      showToast('标题已导出并复制到剪贴板');
+      showToast('标题已复制');
     }).catch(() => {
       showToast('复制失败，请手动复制', true);
       alert(payload);
@@ -4215,15 +4231,15 @@ if (titlePreviewElements.exportBtn) {
   });
 }
 
-if (titlePreviewElements.copyBtn) {
-  titlePreviewElements.copyBtn.addEventListener('click', () => {
-    const payload = getPreviewCopyPayload('titles');
+if (previewElements.copySearchBtn) {
+  previewElements.copySearchBtn.addEventListener('click', () => {
+    const payload = getPreviewCopyPayload('search');
     if (!payload) {
-      showToast('暂无可复制的标题', true);
+      showToast('暂无可复制的 Search Term', true);
       return;
     }
     navigator.clipboard?.writeText(payload).then(() => {
-      showToast('标题内容已复制');
+      showToast('Search Term 已复制');
     }).catch(() => {
       showToast('复制失败，请手动复制', true);
       alert(payload);
@@ -4245,41 +4261,6 @@ if (searchPreviewElements.frequencyBtn) {
 
 if (searchPreviewElements.frequencyClear) {
   searchPreviewElements.frequencyClear.addEventListener('click', clearSearchFrequencies);
-}
-
-if (searchPreviewElements.exportBtn) {
-  searchPreviewElements.exportBtn.addEventListener('click', () => {
-    const items = collectSearchPreviewItems();
-    if (!items.length) {
-      showToast('暂无可导出的 Search Term', true);
-      return;
-    }
-    setPreviewItems('search', items);
-    const format = getPreviewFormat('search');
-    const payload = formatPreviewItems(items, format, 'search');
-    navigator.clipboard?.writeText(payload).then(() => {
-      showToast('Search Term 已导出并复制到剪贴板');
-    }).catch(() => {
-      showToast('复制失败，请手动复制', true);
-      alert(payload);
-    });
-  });
-}
-
-if (searchPreviewElements.copyBtn) {
-  searchPreviewElements.copyBtn.addEventListener('click', () => {
-    const payload = getPreviewCopyPayload('search');
-    if (!payload) {
-      showToast('暂无可复制的 Search Term', true);
-      return;
-    }
-    navigator.clipboard?.writeText(payload).then(() => {
-      showToast('Search Term 内容已复制');
-    }).catch(() => {
-      showToast('复制失败，请手动复制', true);
-      alert(payload);
-    });
-  });
 }
 
 if (previewElements.aiButton) {
