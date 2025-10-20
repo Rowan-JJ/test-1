@@ -105,6 +105,28 @@ const SEARCH_TYPE_PERCENTAGES = {
   minor: 0.2,
 };
 
+const AI_ISSUE_CODE_ALIASES = {
+  LENGTH: 'LENGTH',
+  LENGTH_EXCEEDED: 'LENGTH',
+  OVER_LIMIT: 'LENGTH',
+  CHAR_LIMIT: 'LENGTH',
+  BRAND: 'BRAND',
+  TRADEMARK: 'BRAND',
+  BRAND_WORD: 'BRAND',
+  BANNED: 'BANNED_WORD',
+  BANNED_WORD: 'BANNED_WORD',
+  PROHIBITED: 'BANNED_WORD',
+  WORD_REPEAT: 'WORD_REPEAT',
+  REPEAT: 'WORD_REPEAT',
+  DUPLICATE: 'WORD_REPEAT',
+  CASE: 'CASE',
+  LOWERCASE: 'CASE',
+  UPPERCASE: 'CASE',
+  FORMAT: 'CASE',
+  OTHER: 'OTHER',
+  MISC: 'OTHER',
+};
+
 const FIXED_KEYWORDS = {
   brand: {
     id: '__fixed_brand',
@@ -3758,6 +3780,246 @@ function clearSearchFrequencies() {
   renderPreview();
 }
 
+function escapeRegExp(text) {
+  return (text || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function toFiniteNumber(value) {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+  const numeric = Number.parseFloat(String(value).replace(/[^0-9.+-]+/g, ''));
+  return Number.isFinite(numeric) ? numeric : null;
+}
+
+function inferIssueFromText(text) {
+  if (!text) return null;
+  const raw = text.toString();
+  const lower = raw.toLowerCase();
+  let code = 'OTHER';
+  if (lower.includes('字符') || lower.includes('length') || lower.includes('超过') || lower.includes('超出')) {
+    code = 'LENGTH';
+  } else if (lower.includes('品牌') || lower.includes('brand') || lower.includes('trademark')) {
+    code = 'BRAND';
+  } else if (lower.includes('违禁') || lower.includes('banned') || lower.includes('prohibited')) {
+    code = 'BANNED_WORD';
+  } else if (lower.includes('重复') || lower.includes('repeat') || lower.includes('duplicate')) {
+    code = 'WORD_REPEAT';
+  } else if (lower.includes('小写') || lower.includes('大小写') || lower.includes('lowercase') || lower.includes('uppercase')) {
+    code = 'CASE';
+  }
+  const termMatch = raw.match(/[“"']([^”"'\n]+)[”"']/);
+  const term = termMatch ? termMatch[1] : '';
+  return {
+    code,
+    term,
+    count: null,
+    limit: null,
+    actual: null,
+    detail: raw,
+  };
+}
+
+function normalizeAiIssue(raw) {
+  if (!raw) return null;
+  if (typeof raw === 'string') {
+    return inferIssueFromText(raw);
+  }
+  const codeRaw = typeof raw.code === 'string' ? raw.code.trim().toUpperCase() : '';
+  const code = AI_ISSUE_CODE_ALIASES[codeRaw] || 'OTHER';
+  const term = typeof raw.term === 'string'
+    ? raw.term.trim()
+    : typeof raw.word === 'string'
+      ? raw.word.trim()
+      : '';
+  const detail = typeof raw.detail === 'string'
+    ? raw.detail.trim()
+    : typeof raw.description === 'string'
+      ? raw.description.trim()
+      : typeof raw.message === 'string'
+        ? raw.message.trim()
+        : '';
+  const count = toFiniteNumber(raw.count ?? raw.times ?? raw.frequency);
+  const limit = toFiniteNumber(raw.limit);
+  const actual = toFiniteNumber(raw.actual ?? raw.length ?? raw.value);
+  return {
+    code,
+    term,
+    count,
+    limit,
+    actual,
+    detail,
+  };
+}
+
+function measureTextCharacters(text) {
+  if (!text) return 0;
+  return Array.from(text.toString()).length;
+}
+
+function extractWordsForReview(text) {
+  if (!text) return [];
+  const matches = text.toLowerCase().match(/\p{L}[\p{L}\p{N}'-]*/gu);
+  return matches ? matches : [];
+}
+
+function countWords(words) {
+  const map = new Map();
+  if (!Array.isArray(words)) {
+    return map;
+  }
+  for (const word of words) {
+    map.set(word, (map.get(word) || 0) + 1);
+  }
+  return map;
+}
+
+function findBrandMatchesInText(text) {
+  const matches = [];
+  if (!text) return matches;
+  const source = text.toString();
+  for (const brand of BRAND_BLACKLIST) {
+    if (BRAND_WHITELIST.has(brand)) continue;
+    const pattern = new RegExp(`\b${escapeRegExp(brand)}\b`, 'i');
+    if (pattern.test(source)) {
+      matches.push(brand);
+    }
+  }
+  return matches;
+}
+
+function findBannedWordMatches(words) {
+  const matches = [];
+  if (!Array.isArray(words)) return matches;
+  for (const word of words) {
+    if (BANNED_AMAZON_WORDS.has(word) && !matches.includes(word)) {
+      matches.push(word);
+    }
+  }
+  return matches;
+}
+
+function findOriginalWordInText(text, term) {
+  if (!text || !term) return term;
+  const pattern = new RegExp(`\b${escapeRegExp(term)}\b`, 'i');
+  const match = text.toString().match(pattern);
+  return match ? match[0] : term;
+}
+
+function hasUppercaseForSearch(text) {
+  if (!text) return false;
+  return /[A-Z]/.test(text.toString().replace(/[0-9]/g, ''));
+}
+
+function buildOtherIssueMessage(detail) {
+  if (detail && /[\u4e00-\u9fff]/.test(detail)) {
+    return detail;
+  }
+  return '其他问题：请根据 DeepSeek 审查结果调整。';
+}
+
+function evaluateAiIssue(issue, context) {
+  if (!issue || !context) return null;
+  const originalText = (context.text || '').toString();
+  const normalizedText = (context.normalizedText || originalText).toString();
+  if (!context.words) {
+    context.words = extractWordsForReview(normalizedText);
+  }
+  const limit = typeof context.limit === 'number' ? context.limit : 0;
+  switch (issue.code) {
+    case 'LENGTH': {
+      const length = measureTextCharacters(originalText);
+      const limitValue = typeof issue.limit === 'number' ? issue.limit : limit;
+      if (length > limitValue) {
+        return `字数超限：当前 ${length} 字符，超过上限 ${limitValue} 字符`;
+      }
+      return null;
+    }
+    case 'BRAND': {
+      const matches = findBrandMatchesInText(originalText);
+      if (!matches.length) return null;
+      const target = (issue.term || '').toLowerCase();
+      let selected = matches.find((item) => item.toLowerCase() === target);
+      if (!selected) {
+        selected = matches[0];
+      }
+      const display = findOriginalWordInText(originalText, selected) || selected;
+      return `品牌词违规：检测到品牌词“${display}”`;
+    }
+    case 'BANNED_WORD': {
+      const matches = findBannedWordMatches(context.words);
+      if (!matches.length) return null;
+      const target = (issue.term || '').toLowerCase();
+      let selected = matches.find((item) => item === target);
+      if (!selected) {
+        selected = matches[0];
+      }
+      const display = findOriginalWordInText(originalText, selected) || selected;
+      return `违禁词：检测到违禁词“${display}”`;
+    }
+    case 'WORD_REPEAT': {
+      if (!context.wordCounts) {
+        context.wordCounts = countWords(context.words);
+      }
+      const counts = context.wordCounts;
+      if (!counts.size) return null;
+      const target = (issue.term || '').toLowerCase();
+      if (target) {
+        const count = counts.get(target);
+        if (count && count > WORD_REPEAT_LIMIT) {
+          const display = findOriginalWordInText(originalText, target) || target;
+          return `单词重复：${display} 出现 ${count} 次，超过允许的 ${WORD_REPEAT_LIMIT} 次`;
+        }
+        return null;
+      }
+      for (const [word, count] of counts.entries()) {
+        if (count > WORD_REPEAT_LIMIT) {
+          const display = findOriginalWordInText(originalText, word) || word;
+          return `单词重复：${display} 出现 ${count} 次，超过允许的 ${WORD_REPEAT_LIMIT} 次`;
+        }
+      }
+      return null;
+    }
+    case 'CASE': {
+      if (context.type === 'search' && hasUppercaseForSearch(originalText)) {
+        return '大小写错误：Search Term 应全部小写，请修正大写字母';
+      }
+      return null;
+    }
+    default: {
+      return buildOtherIssueMessage(issue.detail);
+    }
+  }
+}
+
+function evaluateReviewAgainstContext(review, context) {
+  if (!review) return null;
+  const issues = Array.isArray(review.issues) ? review.issues : [];
+  const contextState = {
+    type: context.type,
+    limit: context.limit,
+    text: (context.text || '').toString(),
+    normalizedText: (context.normalizedText || context.text || '').toString(),
+    words: context.words ? context.words.slice() : null,
+    wordCounts: context.wordCounts ? new Map(context.wordCounts) : null,
+  };
+  const messages = [];
+  for (const issue of issues) {
+    const message = evaluateAiIssue(issue, contextState);
+    if (message) {
+      messages.push(message);
+    }
+  }
+  if (messages.length) {
+    const unique = Array.from(new Set(messages));
+    return { status: 'error', message: unique.join('；') };
+  }
+  return { status: 'ok', message: '' };
+}
+
 async function reviewPreviewWithAI() {
   const titleBucket = getPreviewBucket('titles');
   const searchBucket = getPreviewBucket('search');
@@ -3783,6 +4045,7 @@ async function reviewPreviewWithAI() {
 
   try {
     const entries = [];
+    const contentById = new Map();
     const bannedWords = Array.from(BANNED_AMAZON_WORDS).join('、');
     const blockedBrands = Array.from(BRAND_BLACKLIST)
       .filter((brand) => !BRAND_WHITELIST.has(brand))
@@ -3790,14 +4053,29 @@ async function reviewPreviewWithAI() {
 
     for (const item of titleItems) {
       const type = item.type === 'subtitle' ? 'parent' : 'sku';
-      const limit = type === 'parent' ? 125 : 200;
-      const text = transformTitleText((item.text || '').toString());
-      entries.push({ id: item.id, type, limit, text });
+      const limit = type === 'parent' ? getCharacterLimit('subtitle') : getCharacterLimit('sku');
+      const originalText = (item.text || '').toString();
+      const normalizedText = transformTitleText(originalText);
+      entries.push({ id: item.id, type, limit, text: normalizedText });
+      contentById.set(item.id, {
+        type,
+        limit,
+        originalText,
+        normalizedText,
+      });
     }
 
     for (const item of searchItems) {
-      const text = transformSearchText((item.text || '').toString());
-      entries.push({ id: item.id, type: 'search', limit: 250, text });
+      const limit = getCharacterLimit('search');
+      const originalText = (item.text || '').toString();
+      const normalizedText = transformSearchText(originalText);
+      entries.push({ id: item.id, type: 'search', limit, text: normalizedText });
+      contentById.set(item.id, {
+        type: 'search',
+        limit,
+        originalText,
+        normalizedText,
+      });
     }
 
     const payload = entries
@@ -3807,23 +4085,30 @@ async function reviewPreviewWithAI() {
       )
       .join('\n\n');
 
+    const schemaInstruction =
+      '请严格按照以下 JSON 结构返回结果：\n[' +
+      '\n  {"id":"示例","status":"ok","issues":[{"code":"LENGTH","term":"","count":null,"limit":200,"actual":210,"detail":"字数超限：实际 210 字符，超过上限 200 字符"}]}' +
+      '\n]\nstatus 只能是 ok 或 error；issues 在无问题时必须是空数组；detail 必须使用简体中文并遵循“问题类型：具体说明”的格式；code 仅允许 LENGTH、BRAND、BANNED_WORD、WORD_REPEAT、CASE、OTHER。';
+
+    const brandRule = blockedBrands
+      ? `除 Popilush 外，如出现下列品牌词（忽略大小写）视为问题：${blockedBrands}。`
+      : '仅允许品牌词 Popilush（忽略大小写），无其他品牌词限制。';
+    const bannedRule = bannedWords
+      ? `仅当文本实际包含下列违禁词（忽略大小写）时才算问题：${bannedWords}。`
+      : '当前没有额外违禁词限制，可忽略此条。';
+
     const rules = [
-      '父标题字符数 ≤125、SKU 标题 ≤200、Search Term ≤250（均包含空格）。',
-      '仅允许品牌词 Popilush（忽略大小写）；其他品牌词判定为问题。',
-      bannedWords ? `以下违禁词若出现则判定为问题：${bannedWords}。` : '若出现任何亚马逊违禁词则判定为问题。',
-      blockedBrands
-        ? `以下品牌词需视为问题：${blockedBrands}。`
-        : '无额外品牌黑名单。',
-      '任一单词（忽略大小写与标点）在同一条内容中出现次数不得超过 2 次，完全相同才算重复（bodysuit 与 body suit 视为不同）。',
-      'Search Term 应保持全部小写（数字视为小写字符，可保留）。',
-      '无需修改文本，只需给出是否合规的判断。',
+      '父标题字符数不得超过 125，SKU 标题不得超过 200，Search Term 不得超过 250（均包含空格）。',
+      brandRule,
+      bannedRule,
+      '任一单词（忽略大小写与标点）在同一条内容中出现次数不得超过 2 次（bodysuit 与 body suit 视为不同单词）。',
+      'Search Term 必须全部为小写字母，数字视为小写字符，可保留。',
+      '仅根据实际文本判断，不要臆测不存在的问题。',
+      '对每个问题给出明确原因，detail 字段需使用“问题类型：具体说明”的中文描述。',
     ];
 
     const prompt =
-      '你是亚马逊 Listing 合规审核员。请根据以下规则审查每条内容，只返回审核结果：\n-' +
-      rules.join('\n-') +
-      '\n请返回 JSON 数组，例如 [{"id":"123","status":"ok","issues":[]}]. status 只能是 "ok" 或 "error"，issues 是字符串数组（无问题时为空）。每条内容都必须给出结果。\n\n待审查列表：\n' +
-      payload;
+      `${schemaInstruction}\n审核规则：\n- ${rules.join('\n- ')}\n\n待审查列表：\n${payload}`;
 
     const response = await fetch('https://api.deepseek.com/chat/completions', {
       method: 'POST',
@@ -3837,7 +4122,7 @@ async function reviewPreviewWithAI() {
           {
             role: 'system',
             content:
-              'You are an Amazon listing compliance reviewer. Return a JSON array of {"id","status","issues"} without modifying the text. status must be ok or error.',
+              '你是一名亚马逊 Listing 合规审核员。请根据用户提供的规则返回 JSON 数组，勿输出 JSON 以外的文字。数组元素须包含 id、status、issues 字段，issues 为对象数组，对象需包含 code、term、count、limit、actual、detail 字段，code 只能取 LENGTH、BRAND、BANNED_WORD、WORD_REPEAT、CASE、OTHER，detail 必须使用简体中文并遵循“问题类型：具体说明”的格式。',
           },
           { role: 'user', content: prompt },
         ],
@@ -3875,9 +4160,8 @@ async function reviewPreviewWithAI() {
     for (const entry of parsed) {
       if (!entry || typeof entry.id !== 'string') continue;
       const status = entry.status === 'ok' ? 'ok' : 'error';
-      const issues = Array.isArray(entry.issues)
-        ? entry.issues.map((issue) => (typeof issue === 'string' ? issue.trim() : '')).filter(Boolean)
-        : [];
+      const rawIssues = Array.isArray(entry.issues) ? entry.issues : [];
+      const issues = rawIssues.map(normalizeAiIssue).filter(Boolean);
       reviewById.set(entry.id, { status, issues });
     }
 
@@ -3885,20 +4169,41 @@ async function reviewPreviewWithAI() {
     if (searchBucket.reviews) searchBucket.reviews.clear();
 
     for (const item of titleItems) {
+      const stored = contentById.get(item.id) || {};
+      const type = item.type === 'subtitle' ? 'parent' : 'sku';
+      const fallbackText = transformTitleText((item.text || '').toString());
+      const context = {
+        type,
+        limit: typeof stored.limit === 'number'
+          ? stored.limit
+          : type === 'parent'
+            ? getCharacterLimit('subtitle')
+            : getCharacterLimit('sku'),
+        text: stored.originalText ?? fallbackText,
+        normalizedText: stored.normalizedText ?? fallbackText,
+      };
       const review = reviewById.get(item.id);
-      if (review) {
-        const message = review.status === 'error' && review.issues.length ? review.issues[0] : '';
-        titleBucket.reviews.set(item.id, { status: review.status, message });
+      const evaluation = review ? evaluateReviewAgainstContext(review, context) : null;
+      if (evaluation) {
+        titleBucket.reviews.set(item.id, evaluation);
       } else {
         titleBucket.reviews.set(item.id, { status: 'error', message: 'AI 未返回该标题的审查结果' });
       }
     }
 
     for (const item of searchItems) {
+      const stored = contentById.get(item.id) || {};
+      const fallbackText = transformSearchText((item.text || '').toString());
+      const context = {
+        type: 'search',
+        limit: typeof stored.limit === 'number' ? stored.limit : getCharacterLimit('search'),
+        text: stored.originalText ?? fallbackText,
+        normalizedText: stored.normalizedText ?? fallbackText,
+      };
       const review = reviewById.get(item.id);
-      if (review) {
-        const message = review.status === 'error' && review.issues.length ? review.issues[0] : '';
-        searchBucket.reviews.set(item.id, { status: review.status, message });
+      const evaluation = review ? evaluateReviewAgainstContext(review, context) : null;
+      if (evaluation) {
+        searchBucket.reviews.set(item.id, evaluation);
       } else {
         searchBucket.reviews.set(item.id, { status: 'error', message: 'AI 未返回该 Search Term 的审查结果' });
       }
