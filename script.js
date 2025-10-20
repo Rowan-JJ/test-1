@@ -994,6 +994,7 @@ const keywordCategoryCountEls = {
 };
 const keywordForm = document.getElementById('keyword-form');
 const clearLibraryBtn = document.getElementById('clear-library');
+const exportKeywordsBtn = document.getElementById('export-keywords');
 const keywordTypeSelect = document.getElementById('keyword-type');
 const keywordColorInput = document.getElementById('keyword-color');
 const typeColorGrid = document.getElementById('type-color-grid');
@@ -1077,6 +1078,10 @@ if (toggleLibraryBtn) {
   toggleLibraryBtn.addEventListener('click', () => {
     setLibraryCollapsed(!state.libraryCollapsed);
   });
+}
+
+if (exportKeywordsBtn) {
+  exportKeywordsBtn.addEventListener('click', exportLibraryKeywords);
 }
 
 function updateNavMetrics() {
@@ -2245,6 +2250,31 @@ function copyKeyword(keyword) {
   const text = [keyword.text, ...meta].join(' | ');
   navigator.clipboard?.writeText(text).then(() => {
     showToast('关键词信息已复制');
+  }).catch(() => {
+    showToast('复制失败，请手动复制', true);
+  });
+}
+
+function exportLibraryKeywords() {
+  const keywords = Array.from(state.keywords.values()).filter(
+    (keyword) => keyword && !keyword.virtual && !keyword.token,
+  );
+  if (!keywords.length) {
+    showToast('关键词库为空，无法导出', true);
+    return;
+  }
+  const lines = keywords
+    .slice()
+    .sort(compareKeywordsForLibrary)
+    .map((keyword) => {
+      const typeLabel = getKeywordTypeLabel(keyword.type);
+      const heatText = keyword.heat ? keyword.heat : '-';
+      const rankText = keyword.rank ? keyword.rank : '-';
+      return `${keyword.text} | 热度: ${heatText} | 排名: ${rankText} | 类型: ${typeLabel}`;
+    });
+  const payload = lines.join('\n');
+  navigator.clipboard?.writeText(payload).then(() => {
+    showToast('关键词库已复制到剪贴板');
   }).catch(() => {
     showToast('复制失败，请手动复制', true);
   });
