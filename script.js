@@ -879,11 +879,9 @@ async function requestSkuColorSizeViaAI(rawSku, context = {}) {
     }
     const detail = detailParts.length ? `（${detailParts.join('，')}）` : '';
     const prompt =
-      'SKU 编码结构：以 PL 开头，随后是 SPU，再依次包含颜色代号+特征代码、尺码代码（XS/S/M/L/XL/XXL/3XL），末尾可能附加批次号。' +
-      '请判断颜色并输出英文单词（如 Red、Black、Leopard Print），尺码请返回上述集合中的值。' +
-      `请仅返回 JSON，例如 {"color":"Red","size":"M"}，无法判断时使用空字符串。` +
-      `\nSKU：${rawSku}${detail}`;
-    const response = await fetch('https://api.deepseek.com/chat/completions', {
+      `${schemaInstruction}\n审核规则：\n- ${rules.join('\n- ')}\n\n待审查列表（JSON）：\n${payload}`;
+
+    const response = await fetch('https://api.deepseek.com/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -2021,7 +2019,7 @@ async function classifyPendingKeywords(items) {
     `请仅返回 JSON 数组，格式如 [{"id":"pending_1","type":"core"}]，type 字段只能是 core、feature、scene、minor 之一。\n\n${listText}`;
 
   try {
-    const response = await fetch('https://api.deepseek.com/chat/completions', {
+    const response = await fetch('https://api.deepseek.com/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -3301,7 +3299,7 @@ async function generateFivePoints(spuId) {
   try {
     const promptBase = (spu.fivePointPrompt || '').trim() || DEFAULT_FIVE_POINT_PROMPT;
     const userPrompt = `${promptBase}\n\nProduct information:\n${spu.info}`;
-    const response = await fetch('https://api.deepseek.com/chat/completions', {
+    const response = await fetch('https://api.deepseek.com/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -3855,6 +3853,80 @@ function normalizeAiIssue(raw) {
   };
 }
 
+
+function normalizeAiReviewId(value) {
+  if (value == null) return '';
+  const text = String(value).trim();
+  if (!text) return '';
+  const inlineId = text.match(/id\s*[:=]\s*([A-Za-z0-9_\-]+)/i);
+  if (inlineId) {
+    return inlineId[1];
+  }
+  if (/^#\d+/.test(text)) {
+    const hashId = text.match(/#\d+\s+id\s*[:=]\s*([A-Za-z0-9_\-]+)/i);
+    if (hashId) {
+      return hashId[1];
+    }
+  }
+  return text;
+}
+
+function normalizeAiReviewEntry(raw) {
+  if (!raw) return null;
+  if (typeof raw === 'string') {
+    try {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object') {
+        return normalizeAiReviewEntry(parsed);
+      }
+    } catch (error) {
+      const idFromText = normalizeAiReviewId(raw);
+      if (!idFromText) return null;
+      return { id: idFromText, status: 'error', issues: [] };
+    }
+  }
+  if (typeof raw !== 'object') return null;
+  const candidateId = raw.id ?? raw.ID ?? raw.itemId ?? raw.targetId ?? raw.referenceId ?? raw.reference;
+  let id = normalizeAiReviewId(candidateId);
+  if (!id && typeof raw.text === 'string') {
+    id = normalizeAiReviewId(raw.text);
+  }
+  if (!id && typeof raw.detail === 'string') {
+    id = normalizeAiReviewId(raw.detail);
+  }
+  if (!id) return null;
+  let statusRaw = '';
+  if (typeof raw.status === 'string') {
+    statusRaw = raw.status.trim().toLowerCase();
+  } else if (typeof raw.result === 'string') {
+    statusRaw = raw.result.trim().toLowerCase();
+  } else if (typeof raw.state === 'string') {
+    statusRaw = raw.state.trim().toLowerCase();
+  }
+  let status;
+  if (['ok', 'pass', 'passed', 'success', 'valid'].includes(statusRaw)) {
+    status = 'ok';
+  } else if (['error', 'fail', 'failed', 'invalid', 'ng'].includes(statusRaw)) {
+    status = 'error';
+  } else {
+    status = null;
+  }
+  const rawIssues = Array.isArray(raw.issues)
+    ? raw.issues
+    : Array.isArray(raw.problems)
+      ? raw.problems
+      : Array.isArray(raw.errors)
+        ? raw.errors
+        : [];
+  const issues = rawIssues.map(normalizeAiIssue).filter(Boolean);
+  if (!status) {
+    status = issues.length ? 'error' : 'ok';
+  }
+  return { id, status, issues };
+}
+
+
+
 function measureTextCharacters(text) {
   if (!text) return 0;
   return Array.from(text.toString()).length;
@@ -4078,17 +4150,18 @@ async function reviewPreviewWithAI() {
       });
     }
 
-    const payload = entries
-      .map(
-        (entry, index) =>
-          `#${index + 1} id=${entry.id}\n类型: ${entry.type}\n字符上限: ${entry.limit}\n内容: ${entry.text}`,
-      )
-      .join('\n\n');
+    const payloadEntries = entries.map((entry) => ({
+      id: entry.id,
+      type: entry.type,
+      limit: entry.limit,
+      text: entry.text,
+    }));
+    const payload = JSON.stringify(payloadEntries, null, 2);
 
     const schemaInstruction =
       '请严格按照以下 JSON 结构返回结果：\n[' +
       '\n  {"id":"示例","status":"ok","issues":[{"code":"LENGTH","term":"","count":null,"limit":200,"actual":210,"detail":"字数超限：实际 210 字符，超过上限 200 字符"}]}' +
-      '\n]\nstatus 只能是 ok 或 error；issues 在无问题时必须是空数组；detail 必须使用简体中文并遵循“问题类型：具体说明”的格式；code 仅允许 LENGTH、BRAND、BANNED_WORD、WORD_REPEAT、CASE、OTHER。';
+      '\n]\n请仅输出 JSON 数组，不得返回额外文字；status 只能是 ok 或 error；issues 在无问题时必须是空数组；detail 必须使用简体中文并遵循“问题类型：具体说明”的格式；code 仅允许 LENGTH、BRAND、BANNED_WORD、WORD_REPEAT、CASE、OTHER；id 必须与提供的数据一致。';
 
     const brandRule = blockedBrands
       ? `除 Popilush 外，如出现下列品牌词（忽略大小写）视为问题：${blockedBrands}。`
@@ -4108,9 +4181,14 @@ async function reviewPreviewWithAI() {
     ];
 
     const prompt =
-      `${schemaInstruction}\n审核规则：\n- ${rules.join('\n- ')}\n\n待审查列表：\n${payload}`;
+      `${schemaInstruction}
+审核规则：
+- ${rules.join('\n- ')}
 
-    const response = await fetch('https://api.deepseek.com/chat/completions', {
+待审查列表（JSON）：
+${payload}`;
+
+    const response = await fetch('https://api.deepseek.com/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -4153,16 +4231,28 @@ async function reviewPreviewWithAI() {
     }
 
     if (!Array.isArray(parsed)) {
-      throw new Error('返回格式不是数组');
+      if (parsed && typeof parsed === 'object') {
+        if (Array.isArray(parsed.data)) {
+          parsed = parsed.data;
+        } else if (Array.isArray(parsed.results)) {
+          parsed = parsed.results;
+        } else if (Array.isArray(parsed.items)) {
+          parsed = parsed.items;
+        } else {
+          throw new Error('返回格式不是数组');
+        }
+      } else {
+        throw new Error('返回格式不是数组');
+      }
     }
 
     const reviewById = new Map();
     for (const entry of parsed) {
-      if (!entry || typeof entry.id !== 'string') continue;
-      const status = entry.status === 'ok' ? 'ok' : 'error';
-      const rawIssues = Array.isArray(entry.issues) ? entry.issues : [];
-      const issues = rawIssues.map(normalizeAiIssue).filter(Boolean);
-      reviewById.set(entry.id, { status, issues });
+      const normalized = normalizeAiReviewEntry(entry);
+      if (!normalized) continue;
+      if (!reviewById.has(normalized.id)) {
+        reviewById.set(normalized.id, { status: normalized.status, issues: normalized.issues });
+      }
     }
 
     if (titleBucket.reviews) titleBucket.reviews.clear();
