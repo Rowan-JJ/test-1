@@ -1424,10 +1424,13 @@ function createKeywordPill(keyword, { allowRemove, context } = {}) {
   const defaultColor = state.keywordTypeColors[keyword.type] || '#4c6ef5';
   const background = keyword.color || defaultColor;
   pill.style.background = background;
-  if (keyword.textColor) {
+  if (isToken) {
+    const foreground = keyword.textColor || getReadableTextColor(background);
+    pill.style.setProperty('--token-background', background);
+    pill.style.setProperty('--token-foreground', foreground);
+    pill.style.color = foreground;
+  } else if (keyword.textColor) {
     pill.style.color = keyword.textColor;
-  } else if (isToken) {
-    pill.style.color = getReadableTextColor(background);
   }
   pill.querySelector('.keyword-label').textContent = keyword.text;
   const metaParts = [];
