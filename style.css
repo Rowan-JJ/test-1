@@ -837,6 +837,29 @@ button.text.danger:hover {
   cursor: not-allowed;
 }
 
+.title-dropzone .trim-duplicates {
+  pointer-events: auto;
+  padding: 4px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(250, 164, 26, 0.28);
+  background: rgba(250, 176, 5, 0.12);
+  color: #b7791f;
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+}
+
+.title-dropzone .trim-duplicates:hover {
+  background: rgba(250, 176, 5, 0.2);
+  border-color: rgba(250, 164, 26, 0.4);
+}
+
+.title-dropzone .trim-duplicates:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
 .title-dropzone .dropzone-footer .char-counter {
   margin-left: auto;
   pointer-events: none;

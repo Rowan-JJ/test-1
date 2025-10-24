@@ -472,6 +472,49 @@ function splitContainerIntoTokens(spuId, containerType, containerId) {
   showToast(`已将${labelMid}拆分为单词，可继续微调`);
 }
 
+function trimDuplicateTokens(spuId, containerType, containerId) {
+  const spu = state.spus.get(spuId);
+  if (!spu) return;
+  const collection = getKeywordCollection(spu, containerType, containerId);
+  const label = getContainerLabel(containerType);
+  const labelMid = /[A-Za-z]/.test(label) ? ` ${label} ` : label;
+  if (!collection || !collection.length) {
+    showToast(`当前${labelMid}为空，暂无可处理的词`, true);
+    return;
+  }
+  const tokenKeywords = collection
+    .map((keywordId) => state.keywords.get(keywordId))
+    .filter((keyword) => keyword?.token);
+  if (!tokenKeywords.length) {
+    showToast(`请先对${labelMid}执行逐词细分`, true);
+    return;
+  }
+  const limit = Math.max(WORD_REPEAT_LIMIT, 1);
+  const encountered = new Map();
+  let removed = 0;
+  for (let index = collection.length - 1; index >= 0; index -= 1) {
+    const keywordId = collection[index];
+    const keyword = state.keywords.get(keywordId);
+    if (!keyword?.token) continue;
+    const key = (keyword.text || '').trim().toLowerCase();
+    if (!key) continue;
+    const count = encountered.get(key) || 0;
+    if (count >= limit) {
+      collection.splice(index, 1);
+      unregisterTokenKeyword(keyword.id);
+      removed += 1;
+      continue;
+    }
+    encountered.set(key, count + 1);
+  }
+  if (!removed) {
+    showToast('未检测到需要删除的重复词');
+    return;
+  }
+  renderSpu(spuId);
+  showToast(`已删除${removed}个重复词`);
+}
+
 function transferTokenOwnership(keyword, newOwnerKey) {
   if (!keyword || !keyword.token) return;
   const oldOwner = keyword.ownerKey;
@@ -1531,20 +1574,27 @@ function renderDropzoneKeywords(dropzone, keywords, optionsFactory) {
   const placeholder = dropzone.querySelector('.placeholder');
   const annotationContainer = dropzone.parentElement?.querySelector('.title-annotation');
   const shouldAnnotate = Boolean(annotationContainer);
+  const keywordIds = Array.isArray(keywords) ? keywords : [];
+  const hasTokens = keywordIds.some((keywordId) => state.keywords.get(keywordId)?.token);
   const splitButton = dropzone.querySelector('.split-words');
   if (splitButton) {
-    splitButton.disabled = !keywords || !keywords.length;
+    splitButton.disabled = !keywordIds.length;
   }
-  if (!keywords || !keywords.length) {
+  const trimButton = dropzone.querySelector('.trim-duplicates');
+  if (trimButton) {
+    trimButton.hidden = !hasTokens;
+    trimButton.disabled = !hasTokens;
+  }
+  if (!keywordIds.length) {
     if (placeholder) placeholder.hidden = false;
     if (shouldAnnotate) {
       renderTitleAnnotations(dropzone, []);
     }
-    updateDropzoneMeta(dropzone, keywords);
+    updateDropzoneMeta(dropzone, keywordIds);
     return;
   }
   if (placeholder) placeholder.hidden = true;
-  for (const keywordId of keywords) {
+  for (const keywordId of keywordIds) {
     const keyword = state.keywords.get(keywordId);
     if (!keyword) continue;
     let options = optionsFactory ? optionsFactory(keywordId, keyword) : {};
@@ -1555,9 +1605,9 @@ function renderDropzoneKeywords(dropzone, keywords, optionsFactory) {
     dropzone.appendChild(pill);
   }
   if (shouldAnnotate) {
-    renderTitleAnnotations(dropzone, keywords);
+    renderTitleAnnotations(dropzone, keywordIds);
   }
-  updateDropzoneMeta(dropzone, keywords);
+  updateDropzoneMeta(dropzone, keywordIds);
 }
 
 function buildWordEntriesFromKeywordIds(keywordIds) {
@@ -2551,6 +2601,12 @@ function renderSpu(spuId, { append = false } = {}) {
       splitContainerIntoTokens(spu.id, 'subtitle', 'subtitle'),
     );
   }
+  const subtitleTrimBtn = subtitleDropzone.querySelector('.trim-duplicates');
+  if (subtitleTrimBtn) {
+    subtitleTrimBtn.addEventListener('click', () =>
+      trimDuplicateTokens(spu.id, 'subtitle', 'subtitle'),
+    );
+  }
   const skuList = card.querySelector('.sku-list');
   skuList.innerHTML = '';
 
@@ -2664,6 +2720,10 @@ function renderSku(spuId, sku) {
   if (splitBtn) {
     splitBtn.addEventListener('click', () => splitContainerIntoTokens(spuId, 'sku', sku.id));
   }
+  const trimBtn = dropzone.querySelector('.trim-duplicates');
+  if (trimBtn) {
+    trimBtn.addEventListener('click', () => trimDuplicateTokens(spuId, 'sku', sku.id));
+  }
 
   if (!Array.isArray(sku.searchKeywords)) {
     sku.searchKeywords = Array.isArray(sku.searchKeywords) ? sku.searchKeywords.slice() : [];
@@ -2685,6 +2745,12 @@ function renderSku(spuId, sku) {
     const searchSplitBtn = searchDropzone.querySelector('.split-words');
     if (searchSplitBtn) {
       searchSplitBtn.addEventListener('click', () => splitContainerIntoTokens(spuId, 'search', sku.id));
+    }
+    const searchTrimBtn = searchDropzone.querySelector('.trim-duplicates');
+    if (searchTrimBtn) {
+      searchTrimBtn.addEventListener('click', () =>
+        trimDuplicateTokens(spuId, 'search', sku.id),
+      );
     }
   }
 
