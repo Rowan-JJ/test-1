@@ -2907,10 +2907,6 @@ function buildTitleCombination({
           invalid = true;
           break;
         }
-        if (repeatAllowed && currentUsage >= WORD_REPEAT_LIMIT) {
-          invalid = true;
-          break;
-        }
         if (keywordWouldExceedWordLimit(keyword, wordCounts, WORD_REPEAT_LIMIT)) {
           invalid = true;
           break;
