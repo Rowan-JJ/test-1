@@ -549,7 +549,7 @@ button.text.danger:hover {
 }
 
 .keyword-pill.token-pill {
-  background: #ffffff !important;
+  background: #ffffff;
   color: var(--text-primary);
   border: 1px solid rgba(0, 0, 0, 0.12);
   box-shadow: none;

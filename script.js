@@ -391,17 +391,32 @@ function cleanupTokensForSpu(spuId) {
   }
 }
 
-function createTokenFromWord(word, { ownerKey, sourceId }) {
+function getReadableTextColor(background) {
+  const hex = (background || '').toString().trim();
+  if (!/^#?[0-9a-f]{6}$/i.test(hex)) {
+    return '#1f2933';
+  }
+  const normalized = hex.startsWith('#') ? hex.slice(1) : hex;
+  const r = parseInt(normalized.slice(0, 2), 16);
+  const g = parseInt(normalized.slice(2, 4), 16);
+  const b = parseInt(normalized.slice(4, 6), 16);
+  const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+  return luminance > 0.6 ? '#1f2933' : '#ffffff';
+}
+
+function createTokenFromWord(word, { ownerKey, sourceId, color, textColor }) {
   const text = (word || '').trim();
   if (!text) return null;
+  const resolvedColor = color || '#ffffff';
+  const resolvedTextColor = textColor || getReadableTextColor(resolvedColor);
   const token = {
     id: `__token_${++tokenCounter}`,
     text,
     type: 'token',
     token: true,
     virtual: true,
-    color: '#ffffff',
-    textColor: '#1f2933',
+    color: resolvedColor,
+    textColor: resolvedTextColor,
     sourceKeywordId: sourceId,
     ownerKey,
   };
@@ -441,6 +456,8 @@ function assignTokensToContainer(spuId, containerType, containerId, keywordIds) 
       const tokenId = createTokenFromWord(word, {
         ownerKey,
         sourceId: keyword.id,
+        color: keyword.color,
+        textColor: keyword.textColor,
       });
       if (tokenId) {
         tokenIds.push(tokenId);
@@ -1404,14 +1421,13 @@ function createKeywordPill(keyword, { allowRemove, context } = {}) {
   if (isToken) {
     pill.classList.add('token-pill');
   }
-  const background = isToken
-    ? '#ffffff'
-    : keyword.color || state.keywordTypeColors[keyword.type] || '#4c6ef5';
+  const defaultColor = state.keywordTypeColors[keyword.type] || '#4c6ef5';
+  const background = keyword.color || defaultColor;
   pill.style.background = background;
   if (keyword.textColor) {
     pill.style.color = keyword.textColor;
   } else if (isToken) {
-    pill.style.color = '#1f2933';
+    pill.style.color = getReadableTextColor(background);
   }
   pill.querySelector('.keyword-label').textContent = keyword.text;
   const metaParts = [];
