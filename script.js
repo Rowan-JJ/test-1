@@ -2794,8 +2794,6 @@ function buildTitleCombination({
     scene: 2,
   };
 
-  const allowRepeatMap = {};
-
   const slotPlan = [
     { type: 'core' },
     { type: 'feature' },
@@ -2820,145 +2818,154 @@ function buildTitleCombination({
     applyKeywordWordCount(trailing, baseWordCounts);
   }
 
-  const MAX_ATTEMPTS = 24;
-  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
-    const selections = {};
-    let selectionFailed = false;
+  const relaxLevels = [
+    { allowRootOverlap: false, allowEdgeDuplicates: false, allowBoundaryDuplicates: false },
+    { allowRootOverlap: true, allowEdgeDuplicates: false, allowBoundaryDuplicates: false },
+    { allowRootOverlap: true, allowEdgeDuplicates: true, allowBoundaryDuplicates: true },
+  ];
 
-    const heatComparator = (a, b) => {
-      const heatDiff = getKeywordHeatValue(b) - getKeywordHeatValue(a);
-      if (heatDiff !== 0) return heatDiff;
-      return a.text.localeCompare(b.text, 'zh-Hans-CN');
-    };
+  const heatComparator = (a, b) => {
+    const heatDiff = getKeywordHeatValue(b) - getKeywordHeatValue(a);
+    if (heatDiff !== 0) return heatDiff;
+    return a.text.localeCompare(b.text, 'zh-Hans-CN');
+  };
 
-    for (const [type, count] of Object.entries(requiredCounts)) {
-      const pool = pools[type];
-      if (!Array.isArray(pool) || !pool.length) {
-        return null;
-      }
-      const allowRepeat = pool.length < count;
-      allowRepeatMap[type] = allowRepeat;
-      const basePool = shuffle(pool.slice());
-      const expandedPool = basePool.slice();
-      if (allowRepeat) {
-        const sortedByHeat = pool.slice().sort(heatComparator);
-        while (expandedPool.length < count) {
-          for (const keyword of sortedByHeat) {
-            expandedPool.push(keyword);
-            if (expandedPool.length >= count) {
+  for (const relax of relaxLevels) {
+    const MAX_ATTEMPTS = 24;
+    for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
+      const selections = {};
+      const allowRepeatMap = {};
+      let selectionFailed = false;
+
+      for (const [type, count] of Object.entries(requiredCounts)) {
+        const pool = pools[type];
+        if (!Array.isArray(pool) || !pool.length) {
+          return null;
+        }
+        const allowRepeat = pool.length < count;
+        allowRepeatMap[type] = allowRepeat;
+        const basePool = shuffle(pool.slice());
+        const expandedPool = basePool.slice();
+        if (allowRepeat) {
+          const sortedByHeat = pool.slice().sort(heatComparator);
+          while (expandedPool.length < count) {
+            for (const keyword of sortedByHeat) {
+              expandedPool.push(keyword);
+              if (expandedPool.length >= count) {
+                break;
+              }
+            }
+            if (!sortedByHeat.length) {
               break;
             }
           }
-          if (!sortedByHeat.length) {
-            break;
-          }
         }
+        const chosen = [];
+        for (const keyword of expandedPool) {
+          if (chosen.length >= count) break;
+          if (!keyword) continue;
+          if (!allowRepeat && chosen.some((item) => item.id === keyword.id)) continue;
+          if (!isSubtitle && colorText && keywordConflictsWithColor(keyword, colorText)) continue;
+          chosen.push(keyword);
+        }
+        if (chosen.length < count) {
+          selectionFailed = true;
+          break;
+        }
+        selections[type] = chosen
+          .slice()
+          .sort((a, b) => {
+            const heatDiff = getKeywordHeatValue(b) - getKeywordHeatValue(a);
+            if (heatDiff !== 0) return heatDiff;
+            return a.text.localeCompare(b.text, 'zh-Hans-CN');
+          });
       }
-      const chosen = [];
-      for (const keyword of expandedPool) {
-        if (chosen.length >= count) break;
-        if (!keyword) continue;
-        if (!allowRepeat && chosen.some((item) => item.id === keyword.id)) continue;
-        if (!isSubtitle && colorText && keywordConflictsWithColor(keyword, colorText)) continue;
-        chosen.push(keyword);
+
+      if (selectionFailed) {
+        continue;
       }
-      if (chosen.length < count) {
-        selectionFailed = true;
-        break;
-      }
-      selections[type] = chosen
-        .slice()
-        .sort((a, b) => {
-          const heatDiff = getKeywordHeatValue(b) - getKeywordHeatValue(a);
-          if (heatDiff !== 0) return heatDiff;
-          return a.text.localeCompare(b.text, 'zh-Hans-CN');
+
+      const selectedIds = [brandKeyword.id];
+      const selectedWords = [];
+      const usedCounts = new Map([[brandKeyword.id, 1]]);
+      const wordCounts = new Map(baseWordCounts);
+      const typeCursors = { core: 0, feature: 0, scene: 0 };
+
+      let invalid = false;
+      for (const slot of slotPlan) {
+        const list = selections[slot.type];
+        const cursor = typeCursors[slot.type] || 0;
+        const keyword = list?.[cursor];
+        typeCursors[slot.type] = cursor + 1;
+        if (!keyword) {
+          invalid = true;
+          break;
+        }
+        const repeatAllowed = !!allowRepeatMap[slot.type];
+        const currentUsage = usedCounts.get(keyword.id) || 0;
+        if (!repeatAllowed && currentUsage > 0) {
+          invalid = true;
+          break;
+        }
+        if (repeatAllowed && currentUsage >= WORD_REPEAT_LIMIT) {
+          invalid = true;
+          break;
+        }
+        if (keywordWouldExceedWordLimit(keyword, wordCounts, WORD_REPEAT_LIMIT)) {
+          invalid = true;
+          break;
+        }
+        if (!relax.allowBoundaryDuplicates && selectedWords.length && keywordsCauseBoundaryDuplicate(selectedWords[selectedWords.length - 1], keyword)) {
+          invalid = true;
+          break;
+        }
+
+        const prospectiveIds = selectedIds.concat(keyword.id);
+        const prospectiveLength = computeTitleCandidateLength(prospectiveIds, {
+          isSubtitle,
+          colorKeywordIds,
         });
-    }
+        if (prospectiveLength > limit) {
+          invalid = true;
+          break;
+        }
 
-    if (selectionFailed) {
-      continue;
-    }
-
-    const selectedIds = [brandKeyword.id];
-    const selectedWords = [];
-    const usedCounts = new Map([[brandKeyword.id, 1]]);
-    const wordCounts = new Map(baseWordCounts);
-    const typeCursors = { core: 0, feature: 0, scene: 0 };
-
-    let invalid = false;
-    for (const slot of slotPlan) {
-      const list = selections[slot.type];
-      const cursor = typeCursors[slot.type] || 0;
-      const keyword = list?.[cursor];
-      typeCursors[slot.type] = cursor + 1;
-      if (!keyword) {
-        invalid = true;
-        break;
-      }
-      const repeatAllowed = !!allowRepeatMap[slot.type];
-      const currentUsage = usedCounts.get(keyword.id) || 0;
-      if (!repeatAllowed && currentUsage > 0) {
-        invalid = true;
-        break;
-      }
-      if (repeatAllowed && currentUsage >= WORD_REPEAT_LIMIT) {
-        invalid = true;
-        break;
-      }
-      if (keywordWouldExceedWordLimit(keyword, wordCounts, WORD_REPEAT_LIMIT)) {
-        invalid = true;
-        break;
-      }
-      if (selectedWords.length && keywordsCauseBoundaryDuplicate(selectedWords[selectedWords.length - 1], keyword)) {
-        invalid = true;
-        break;
+        selectedWords.push(keyword);
+        selectedIds.push(keyword.id);
+        usedCounts.set(keyword.id, currentUsage + 1);
+        applyKeywordWordCount(keyword, wordCounts);
       }
 
-      const prospectiveIds = selectedIds.concat(keyword.id);
-      const prospectiveLength = computeTitleCandidateLength(prospectiveIds, {
+      if (invalid) {
+        continue;
+      }
+
+      const coreIndexes = slotGroups.core || [];
+      const coreWords = coreIndexes.map((index) => selectedWords[index]).filter(Boolean);
+      if (!relax.allowRootOverlap && hasRootOverlap(coreWords)) {
+        continue;
+      }
+
+      if (!relax.allowEdgeDuplicates && hasEdgeDuplicates(selectedWords)) {
+        continue;
+      }
+
+      const finalLength = computeTitleCandidateLength(selectedIds, {
         isSubtitle,
         colorKeywordIds,
       });
-      if (prospectiveLength > limit) {
-        invalid = true;
-        break;
+      if (finalLength > limit) {
+        continue;
       }
 
-      selectedWords.push(keyword);
-      selectedIds.push(keyword.id);
-      usedCounts.set(keyword.id, currentUsage + 1);
-      applyKeywordWordCount(keyword, wordCounts);
+      const heat = selectedWords.reduce((total, keyword) => total + getKeywordHeatValue(keyword), 0);
+      return {
+        ids: selectedIds,
+        words: selectedWords,
+        length: finalLength,
+        heat,
+      };
     }
-
-    if (invalid) {
-      continue;
-    }
-
-    const coreIndexes = slotGroups.core || [];
-    const coreWords = coreIndexes.map((index) => selectedWords[index]).filter(Boolean);
-    if (hasRootOverlap(coreWords)) {
-      continue;
-    }
-
-    if (hasEdgeDuplicates(selectedWords)) {
-      continue;
-    }
-
-    const finalLength = computeTitleCandidateLength(selectedIds, {
-      isSubtitle,
-      colorKeywordIds,
-    });
-    if (finalLength > limit) {
-      continue;
-    }
-
-    const heat = selectedWords.reduce((total, keyword) => total + getKeywordHeatValue(keyword), 0);
-    return {
-      ids: selectedIds,
-      words: selectedWords,
-      length: finalLength,
-      heat,
-    };
   }
 
   return null;
