@@ -507,7 +507,26 @@ function trimDuplicateTokens(spuId, containerType, containerId) {
     return;
   }
   const limit = Math.max(WORD_REPEAT_LIMIT, 1);
-  const encountered = new Map();
+  const totals = new Map();
+  for (const keyword of tokenKeywords) {
+    const key = (keyword.text || '').trim().toLowerCase();
+    if (!key) continue;
+    totals.set(key, (totals.get(key) || 0) + 1);
+  }
+  const extras = new Map();
+  let expectedRemovals = 0;
+  for (const [key, count] of totals.entries()) {
+    if (!key) continue;
+    if (count > limit) {
+      const extra = count - limit;
+      extras.set(key, extra);
+      expectedRemovals += extra;
+    }
+  }
+  if (!expectedRemovals) {
+    showToast('未检测到需要删除的重复词');
+    return;
+  }
   let removed = 0;
   for (let index = collection.length - 1; index >= 0; index -= 1) {
     const keywordId = collection[index];
@@ -515,14 +534,16 @@ function trimDuplicateTokens(spuId, containerType, containerId) {
     if (!keyword?.token) continue;
     const key = (keyword.text || '').trim().toLowerCase();
     if (!key) continue;
-    const count = encountered.get(key) || 0;
-    if (count >= limit) {
-      collection.splice(index, 1);
-      unregisterTokenKeyword(keyword.id);
-      removed += 1;
-      continue;
+    const remaining = extras.get(key) || 0;
+    if (!remaining) continue;
+    collection.splice(index, 1);
+    unregisterTokenKeyword(keyword.id);
+    removed += 1;
+    if (remaining === 1) {
+      extras.delete(key);
+    } else {
+      extras.set(key, remaining - 1);
     }
-    encountered.set(key, count + 1);
   }
   if (!removed) {
     showToast('未检测到需要删除的重复词');
