@@ -211,25 +211,25 @@
 
     <section class="panel spu-board" id="spu-section">
       <div class="spu-board-header">
-        <div class="spu-board-heading">
+        <div class="spu-board-top">
           <h2>SPU 与 SKU 标题区</h2>
-          <p class="hint">所有生成的标题与 Search Term 都会在此处纵向排列，便于在同一行查看完整内容。</p>
+          <div class="title-limit-settings" role="group" aria-label="标题长度设置">
+            <span class="settings-label">标题长度设置：</span>
+            <label class="title-limit-field" for="sku-title-limit">
+              <span>SKU 标题</span>
+              <input id="sku-title-limit" type="number" min="20" max="400" value="200" />
+            </label>
+            <label class="title-limit-field" for="subtitle-limit">
+              <span>父标题</span>
+              <input id="subtitle-limit" type="number" min="20" max="250" value="125" />
+            </label>
+            <label class="title-limit-field" for="search-limit">
+              <span>Search Term</span>
+              <input id="search-limit" type="number" min="50" max="400" value="250" />
+            </label>
+          </div>
         </div>
-        <div class="settings-box title-limit-settings">
-          <h3>标题长度设置</h3>
-          <div class="field-group">
-            <label for="sku-title-limit">SKU 标题字符上限</label>
-            <input id="sku-title-limit" type="number" min="20" max="400" value="200" />
-          </div>
-          <div class="field-group">
-            <label for="subtitle-limit">父标题字符上限</label>
-            <input id="subtitle-limit" type="number" min="20" max="250" value="125" />
-          </div>
-          <div class="field-group">
-            <label for="search-limit">Search Term 字符上限</label>
-            <input id="search-limit" type="number" min="50" max="400" value="250" />
-          </div>
-        </div>
+        <p class="hint">所有生成的标题与 Search Term 都会在此处纵向排列，便于在同一行查看完整内容。</p>
       </div>
       <div id="spu-container" class="spu-container"></div>
     </section>

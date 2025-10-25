@@ -895,33 +895,60 @@ button.text.danger:hover {
 .spu-board-header {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 12px;
 }
 
-.spu-board-heading {
+.spu-board-top {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 12px;
+  align-items: flex-start;
 }
 
 .title-limit-settings {
-  width: 100%;
-  max-width: 420px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  border: 1px dashed var(--border);
+  border-radius: 12px;
+  background: rgba(76, 110, 245, 0.08);
+  flex-wrap: wrap;
 }
 
-.title-limit-settings .field-group {
-  margin: 0;
+.title-limit-settings .settings-label {
+  font-weight: 600;
+  font-size: 0.92rem;
+  color: var(--text-strong);
 }
 
-@media (min-width: 960px) {
-  .spu-board-header {
+.title-limit-settings .title-limit-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.9rem;
+  color: var(--text-muted);
+}
+
+.title-limit-settings .title-limit-field span {
+  white-space: nowrap;
+}
+
+.title-limit-settings input {
+  width: 80px;
+  padding: 6px 8px;
+}
+
+@media (min-width: 720px) {
+  .spu-board-top {
     flex-direction: row;
+    align-items: center;
     justify-content: space-between;
-    align-items: flex-start;
+    gap: 16px;
   }
 
   .title-limit-settings {
-    flex: 0 0 auto;
+    justify-content: flex-end;
   }
 }
 
