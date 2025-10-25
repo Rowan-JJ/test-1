@@ -21,73 +21,24 @@
   <nav class="top-nav">
     <div class="nav-brand">Listing 助手</div>
     <ul class="nav-links">
-      <li><a href="#product-section">商品结构</a></li>
       <li><a href="#keyword-section">关键词管理</a></li>
+      <li><a href="#product-section">商品结构</a></li>
       <li><a href="#library-section">关键词库</a></li>
       <li><a href="#spu-section">标题与 Search Term</a></li>
       <li><a href="#preview-section">预览区</a></li>
     </ul>
   </nav>
   <header class="app-header">
-    <h1>亚马逊 Listing 标题与五点助手</h1>
+    <div class="header-bar">
+      <h1>亚马逊 Listing 标题与五点助手</h1>
+      <button id="api-key-edit" class="secondary" type="button">修改秘钥</button>
+    </div>
+    <input id="api-key" type="hidden" value="sk-fae9b9725466489fad43c0589e6841cf" />
     <p>管理关键词、为不同 SKU 组合标题与 Search Term，并使用 DeepSeek 生成五点描述。</p>
   </header>
 
   <main class="layout">
     <div class="top-grid">
-      <section class="panel product-panel" id="product-section">
-        <h2>商品结构</h2>
-        <form id="spu-form" class="spu-form">
-          <div class="field-group">
-            <label for="spu-name">SPU 名称</label>
-            <input id="spu-name" type="text" required placeholder="例如：WSHb53055" />
-          </div>
-          <div class="field-group">
-            <label for="spu-info">产品信息</label>
-            <textarea id="spu-info" rows="3" placeholder="输入材质、功能、卖点等描述"></textarea>
-          </div>
-          <button type="submit" class="primary">创建 SPU</button>
-        </form>
-
-        <div class="api-key-box">
-          <label for="api-key">DeepSeek API Key</label>
-          <div class="api-key-controls">
-            <input
-              id="api-key"
-              type="password"
-              value="sk-fae9b9725466489fad43c0589e6841cf"
-              readonly
-            />
-            <button id="api-key-edit" class="secondary" type="button">修改秘钥</button>
-          </div>
-          <p class="hint">默认使用系统提供的 API Key，可根据需要点击修改。</p>
-        </div>
-
-        <div class="settings-box">
-          <h3>标题长度设置</h3>
-          <div class="field-group">
-            <label for="sku-title-limit">SKU 标题字符上限</label>
-            <input id="sku-title-limit" type="number" min="20" max="400" value="200" />
-          </div>
-          <div class="field-group">
-            <label for="subtitle-limit">父标题字符上限</label>
-            <input id="subtitle-limit" type="number" min="20" max="250" value="125" />
-          </div>
-          <div class="field-group">
-            <label for="search-limit">Search Term 字符上限</label>
-            <input id="search-limit" type="number" min="50" max="400" value="250" />
-          </div>
-        </div>
-
-        <div class="spu-summary-panel" id="spu-summary-panel">
-          <h3>SPU 列表</h3>
-          <p class="hint">在此查看每个 SPU 的产品信息详情。</p>
-          <ul id="spu-summary-list" class="spu-summary-list">
-            <li class="empty" id="spu-summary-empty">尚未创建 SPU。</li>
-          </ul>
-        </div>
-      </section>
-
       <section class="panel keyword-panel" id="keyword-section">
         <h2>关键词管理</h2>
         <form id="keyword-form" class="keyword-form">
@@ -173,6 +124,29 @@
           </div>
         </div>
       </section>
+
+      <section class="panel product-panel" id="product-section">
+        <h2>商品结构</h2>
+        <form id="spu-form" class="spu-form">
+          <div class="field-group">
+            <label for="spu-name">SPU 名称</label>
+            <input id="spu-name" type="text" required placeholder="例如：WSHb53055" />
+          </div>
+          <div class="field-group">
+            <label for="spu-info">产品信息</label>
+            <textarea id="spu-info" rows="3" placeholder="输入材质、功能、卖点等描述"></textarea>
+          </div>
+          <button type="submit" class="primary">创建 SPU</button>
+        </form>
+
+        <div class="spu-summary-panel" id="spu-summary-panel">
+          <h3>SPU 列表</h3>
+          <p class="hint">在此查看每个 SPU 的产品信息详情。</p>
+          <ul id="spu-summary-list" class="spu-summary-list">
+            <li class="empty" id="spu-summary-empty">尚未创建 SPU。</li>
+          </ul>
+        </div>
+      </section>
     </div>
 
     <section class="panel library-panel" id="library-section">
@@ -236,8 +210,27 @@
     </section>
 
     <section class="panel spu-board" id="spu-section">
-      <h2>SPU 与 SKU 标题区</h2>
-      <p class="hint">所有生成的标题与 Search Term 都会在此处纵向排列，便于在同一行查看完整内容。</p>
+      <div class="spu-board-header">
+        <div class="spu-board-heading">
+          <h2>SPU 与 SKU 标题区</h2>
+          <p class="hint">所有生成的标题与 Search Term 都会在此处纵向排列，便于在同一行查看完整内容。</p>
+        </div>
+        <div class="settings-box title-limit-settings">
+          <h3>标题长度设置</h3>
+          <div class="field-group">
+            <label for="sku-title-limit">SKU 标题字符上限</label>
+            <input id="sku-title-limit" type="number" min="20" max="400" value="200" />
+          </div>
+          <div class="field-group">
+            <label for="subtitle-limit">父标题字符上限</label>
+            <input id="subtitle-limit" type="number" min="20" max="250" value="125" />
+          </div>
+          <div class="field-group">
+            <label for="search-limit">Search Term 字符上限</label>
+            <input id="search-limit" type="number" min="50" max="400" value="250" />
+          </div>
+        </div>
+      </div>
       <div id="spu-container" class="spu-container"></div>
     </section>
 

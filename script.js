@@ -1300,29 +1300,20 @@ function ensureFixedKeywords() {
 
 function initializeApiKeyField() {
   if (!apiKeyInput) return;
-  const current = (apiKeyInput.value || '').trim();
-  apiKeyInput.value = current || DEFAULT_API_KEY;
-  apiKeyInput.readOnly = true;
-  apiKeyInput.dataset.locked = 'true';
+  if (!(apiKeyInput.value || '').trim()) {
+    apiKeyInput.value = DEFAULT_API_KEY;
+  }
   if (apiKeyEditBtn) {
-    apiKeyEditBtn.textContent = '修改秘钥';
     apiKeyEditBtn.addEventListener('click', () => {
-      const locked = apiKeyInput.dataset.locked === 'true';
-      if (locked) {
-        apiKeyInput.dataset.locked = 'false';
-        apiKeyInput.readOnly = false;
-        apiKeyEditBtn.textContent = '完成修改';
-        apiKeyInput.focus();
-        apiKeyInput.select();
-      } else {
-        apiKeyInput.dataset.locked = 'true';
-        apiKeyInput.readOnly = true;
-        apiKeyEditBtn.textContent = '修改秘钥';
-        if (!(apiKeyInput.value || '').trim()) {
-          apiKeyInput.value = DEFAULT_API_KEY;
-        }
-        showToast('API Key 已更新');
+      const nextKey = window.prompt('请输入新的 DeepSeek API Key');
+      if (nextKey == null) return;
+      const trimmed = nextKey.trim();
+      if (!trimmed) {
+        showToast('已保留当前 API Key');
+        return;
       }
+      apiKeyInput.value = trimmed;
+      showToast('API Key 已更新');
     });
   }
 }
@@ -4835,6 +4826,9 @@ renderPreview();
 
 if (previewElements.exportBtn) {
   previewElements.exportBtn.addEventListener('click', () => {
+    if (!state.libraryCollapsed) {
+      setLibraryCollapsed(true);
+    }
     const titleItems = collectTitlePreviewItems();
     const searchItems = collectSearchPreviewItems();
     if (!titleItems.length && !searchItems.length) {
