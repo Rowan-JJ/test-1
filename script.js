@@ -553,6 +553,23 @@ function trimDuplicateTokens(spuId, containerType, containerId) {
   showToast(`已删除${removed}个重复词`);
 }
 
+function clearContainerKeywords(spuId, containerType, containerId) {
+  const spu = state.spus.get(spuId);
+  if (!spu) return;
+  const collection = getKeywordCollection(spu, containerType, containerId);
+  const label = getContainerLabel(containerType);
+  const labelMid = /[A-Za-z]/.test(label) ? ` ${label} ` : label;
+  if (!Array.isArray(collection) || !collection.length) {
+    showToast(`当前${labelMid}已为空`, true);
+    return;
+  }
+  const ownerKey = getContainerKey(spuId, containerType, containerId);
+  cleanupTokensForOwner(ownerKey);
+  collection.splice(0, collection.length);
+  renderSpu(spuId);
+  showToast(`已清空${labelMid}`);
+}
+
 function transferTokenOwnership(keyword, newOwnerKey) {
   if (!keyword || !keyword.token) return;
   const oldOwner = keyword.ownerKey;
@@ -1616,6 +1633,10 @@ function renderDropzoneKeywords(dropzone, keywords, optionsFactory) {
     trimButton.hidden = !hasTokens;
     trimButton.disabled = !hasTokens;
   }
+  const clearButton = dropzone.querySelector('.clear-dropzone');
+  if (clearButton) {
+    clearButton.disabled = !keywordIds.length;
+  }
   if (!keywordIds.length) {
     if (placeholder) placeholder.hidden = false;
     if (shouldAnnotate) {
@@ -2638,6 +2659,12 @@ function renderSpu(spuId, { append = false } = {}) {
       trimDuplicateTokens(spu.id, 'subtitle', 'subtitle'),
     );
   }
+  const subtitleClearBtn = subtitleDropzone.querySelector('.clear-dropzone');
+  if (subtitleClearBtn) {
+    subtitleClearBtn.addEventListener('click', () =>
+      clearContainerKeywords(spu.id, 'subtitle', 'subtitle'),
+    );
+  }
   const skuList = card.querySelector('.sku-list');
   skuList.innerHTML = '';
 
@@ -2755,6 +2782,10 @@ function renderSku(spuId, sku) {
   if (trimBtn) {
     trimBtn.addEventListener('click', () => trimDuplicateTokens(spuId, 'sku', sku.id));
   }
+  const clearBtn = dropzone.querySelector('.clear-dropzone');
+  if (clearBtn) {
+    clearBtn.addEventListener('click', () => clearContainerKeywords(spuId, 'sku', sku.id));
+  }
 
   if (!Array.isArray(sku.searchKeywords)) {
     sku.searchKeywords = Array.isArray(sku.searchKeywords) ? sku.searchKeywords.slice() : [];
@@ -2781,6 +2812,12 @@ function renderSku(spuId, sku) {
     if (searchTrimBtn) {
       searchTrimBtn.addEventListener('click', () =>
         trimDuplicateTokens(spuId, 'search', sku.id),
+      );
+    }
+    const searchClearBtn = searchDropzone.querySelector('.clear-dropzone');
+    if (searchClearBtn) {
+      searchClearBtn.addEventListener('click', () =>
+        clearContainerKeywords(spuId, 'search', sku.id),
       );
     }
   }
