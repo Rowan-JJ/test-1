@@ -1957,13 +1957,27 @@ function parseBulkKeywordInput(raw) {
     .filter(Boolean)
     .map((line) => {
       const hasDelimiter = /[|,\t]/.test(line);
-      const parts = hasDelimiter ? line.split(/\s*[|,\t]\s*/).filter(Boolean) : [line];
-      const [keywordPart, heatPart, rankPart, ...rest] = parts;
-      const keyword = (keywordPart || '').trim();
+      const segments = hasDelimiter
+        ? line.split(/\s*[|,\t]\s*/).filter(Boolean)
+        : [line];
+      if (!segments.length) return null;
+      const keyword = (segments.shift() || '').trim();
       if (!keyword) return null;
-      const heat = (heatPart || '').trim();
-      const rank = [rankPart, ...rest].filter(Boolean).join(' ').trim();
-      return { text: keyword, heat, rank };
+
+      let providedType = null;
+      if (segments.length) {
+        const last = segments[segments.length - 1];
+        const normalized = normalizeTypeAlias(last);
+        if (normalized) {
+          providedType = normalized;
+          segments.pop();
+        }
+      }
+
+      const heat = (segments.shift() || '').trim();
+      const rank = segments.map((part) => part.trim()).filter(Boolean).join(' ');
+
+      return { text: keyword, heat, rank, type: providedType };
     })
     .filter(Boolean);
 }
@@ -4732,18 +4746,37 @@ if (bulkKeywordSubmit && bulkKeywordTextarea) {
       showToast('未解析到有效的关键词，请检查格式', true);
       return;
     }
-    const newItems = parsed.map((item) => ({
-      id: `pending_${++pendingKeywordCounter}`,
-      text: item.text,
-      heat: item.heat,
-      rank: item.rank,
-      status: 'waiting',
-      errorMessage: '',
-    }));
-    state.pendingKeywords.push(...newItems);
-    renderPendingKeywords();
+    const toClassify = [];
+    let directAdded = 0;
+
+    for (const item of parsed) {
+      if (item.type) {
+        createKeyword({ text: item.text, heat: item.heat, rank: item.rank, type: item.type });
+        directAdded += 1;
+      } else {
+        toClassify.push(item);
+      }
+    }
+
+    if (directAdded) {
+      showToast(`已直接新增 ${directAdded} 个关键词`);
+    }
+
+    if (toClassify.length) {
+      const newItems = toClassify.map((item) => ({
+        id: `pending_${++pendingKeywordCounter}`,
+        text: item.text,
+        heat: item.heat,
+        rank: item.rank,
+        status: 'waiting',
+        errorMessage: '',
+      }));
+      state.pendingKeywords.push(...newItems);
+      renderPendingKeywords();
+      classifyPendingKeywords(newItems);
+    }
+
     bulkKeywordTextarea.value = '';
-    classifyPendingKeywords(newItems);
   });
 }
 
