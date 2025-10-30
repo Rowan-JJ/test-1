@@ -385,7 +385,7 @@ button.text.danger:hover {
 }
 
 .library-panel:not(.collapsed) .library {
-  height: clamp(260px, 33vh, 360px);
+  height: clamp(320px, 50vh, 540px);
 }
 
 .library-panel.collapsed .library {
@@ -555,7 +555,7 @@ button.text.danger:hover {
   padding: 6px 10px;
   border-radius: 10px;
   color: white;
-  font-size: 0.78rem;
+  font-size: 0.84rem;
   font-weight: 600;
   cursor: grab;
   position: relative;
@@ -660,11 +660,6 @@ button.text.danger:hover {
 .title-dropzone.active {
   border-color: var(--accent);
   background: rgba(76, 110, 245, 0.12);
-}
-
-.title-dropzone.over-limit {
-  border-color: rgba(224, 49, 49, 0.7);
-  background: rgba(224, 49, 49, 0.08);
 }
 
 .title-dropzone .keyword-pill {
@@ -824,11 +819,6 @@ button.text.danger:hover {
   font-size: 0.78rem;
   color: var(--text-secondary);
   pointer-events: none;
-}
-
-.title-dropzone.over-limit .dropzone-footer {
-  color: var(--danger);
-  font-weight: 600;
 }
 
 .title-dropzone .split-words {
@@ -1092,7 +1082,6 @@ button.text.danger:hover {
 }
 
 .char-counter.over,
-.sku-meta.over,
 .search-text.over-limit {
   color: var(--danger);
 }
@@ -1114,16 +1103,6 @@ button.text.danger:hover {
   gap: 8px;
   align-items: center;
   flex-wrap: wrap;
-}
-
-.sku-actions .sku-meta {
-  font-size: 0.75rem;
-  color: var(--text-secondary);
-}
-
-.sku-actions .sku-meta.over {
-  color: var(--danger);
-  font-weight: 600;
 }
 
 .api-key-box {

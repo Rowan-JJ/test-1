@@ -1921,51 +1921,18 @@ function updateDropzoneMeta(dropzone, keywordIds) {
     const collection = spu ? getKeywordCollection(spu, containerType, containerId) : [];
     keywords = collection ? collection.slice() : [];
   }
-  const text = buildTextFromKeywordIds(keywords);
   const length = measureKeywordIdsLength(keywords);
   const counter = dropzone.querySelector('.char-counter');
   if (counter) {
     counter.textContent = `${length} / ${limit}`;
     counter.classList.toggle('over', length > limit);
   }
-  dropzone.classList.toggle('over-limit', length > limit);
-}
-
-function updateSearchMeta(skuElement, sku) {
-  if (!skuElement || !sku) return;
-  const dropzone = skuElement.querySelector('.search-dropzone');
-  if (!dropzone) return;
-  updateDropzoneMeta(dropzone, sku.searchKeywords);
 }
 
 function refreshAllDropzoneMetas() {
   document.querySelectorAll('.title-dropzone').forEach((dropzone) => {
     updateDropzoneMeta(dropzone);
   });
-  document.querySelectorAll('.sku-card').forEach((card) => {
-    const skuId = card.dataset.skuId;
-    const spuId = card.closest('[data-spu-id]')?.dataset.spuId;
-    if (!skuId || !spuId) return;
-    const spu = state.spus.get(spuId);
-    const sku = spu?.skus.find((item) => item.id === skuId);
-    if (sku) {
-      updateSkuMeta(card, sku);
-      updateSearchMeta(card, sku);
-    }
-  });
-}
-
-function validateContainerLength(spuId, containerType, containerId, keywords) {
-  const limit = getCharacterLimit(containerType);
-  const text = buildTextFromKeywordIds(keywords);
-  const length = measureKeywordIdsLength(keywords);
-  if (length > limit) {
-    const label = getContainerLabel(containerType);
-    const labelPrefix = /[A-Za-z]/.test(label) ? `${label} ` : label;
-    showToast(`${labelPrefix}字符数超过限制（${length} / ${limit}）`, true);
-    return false;
-  }
-  return true;
 }
 
 function clampLimitValue(value, fallback, { min = 20, max = 400 } = {}) {
@@ -2321,13 +2288,6 @@ function insertKeywordIntoContainer(spuId, containerType, containerId, keywordId
     collection.push(keywordId);
   }
 
-  if (!validateContainerLength(spuId, containerType, containerId, collection)) {
-    const removalIndex = insertIndex >= 0 ? insertIndex : collection.length - 1;
-    if (removalIndex >= 0) {
-      collection.splice(removalIndex, 1);
-    }
-    return;
-  }
   renderSpu(spuId);
 }
 
@@ -2382,11 +2342,6 @@ function moveKeywordBetweenContainers(
   const insertIndex = beforeKeywordId ? snapshot.indexOf(beforeKeywordId) : -1;
   const newIndex = insertIndex >= 0 ? insertIndex : snapshot.length;
   snapshot.splice(newIndex, 0, keywordId);
-
-  if (!validateContainerLength(toSpuId, toContainerType, toContainerId, snapshot)) {
-    fromCollection.splice(index, 0, keywordId);
-    return;
-  }
 
   toCollection.splice(0, toCollection.length, ...snapshot);
   const keywordObj = state.keywords.get(keywordId);
@@ -2773,7 +2728,6 @@ function renderSku(spuId, sku) {
     allowRemove: true,
     context: { spuId, containerType: 'sku', containerId: sku.id, keywordId },
   }));
-  updateSkuMeta(skuElement, sku);
   const splitBtn = dropzone.querySelector('.split-words');
   if (splitBtn) {
     splitBtn.addEventListener('click', () => splitContainerIntoTokens(spuId, 'sku', sku.id));
@@ -2830,20 +2784,9 @@ function renderSku(spuId, sku) {
     searchExportBtn.addEventListener('click', () => exportSearchTerms(spuId, sku.id));
   }
 
-  updateSearchMeta(skuElement, sku);
-
   skuElement.querySelector('.sku-export').addEventListener('click', () => exportTitle(spuId, sku.id));
   skuElement.querySelector('.sku-delete').addEventListener('click', () => removeSku(spuId, sku.id));
   return skuElement;
-}
-
-function updateSkuMeta(skuElement, sku) {
-  const metaEl = skuElement.querySelector('.sku-meta');
-  if (!metaEl) return;
-  const limit = state.settings.skuTitleLimit || DEFAULT_SKU_TITLE_LIMIT;
-  const length = measureKeywordIdsLength(sku.titleKeywords);
-  metaEl.textContent = `字符：${length} / ${limit}`;
-  metaEl.classList.toggle('over', length > limit);
 }
 
 function bindDropzoneEvents(dropzone) {
@@ -4582,19 +4525,20 @@ function exportTitle(spuId, skuId) {
   if (!spu) return;
   const sku = spu.skus.find((item) => item.id === skuId);
   if (!sku) return;
-  const keywords = sku.titleKeywords
-    .map((keywordId) => state.keywords.get(keywordId)?.text)
-    .filter(Boolean);
-  if (!keywords.length) {
+  const raw = buildTextFromKeywordIds(sku.titleKeywords);
+  if (!raw) {
     alert('该 SKU 的标题为空，请先拖入关键词。');
     return;
   }
-  const title = keywords.join(' ');
-  navigator.clipboard?.writeText(title).then(() => {
-    showToast('标题已复制到剪贴板');
-  }).catch(() => {
-    showToast(`标题：${title}`, true);
-  });
+  const title = transformTitleText(raw);
+  navigator.clipboard
+    ?.writeText(title)
+    .then(() => {
+      showToast('标题已复制到剪贴板');
+    })
+    .catch(() => {
+      showToast(`标题：${title}`, true);
+    });
 }
 
 function exportSearchTerms(spuId, skuId) {
@@ -4602,34 +4546,39 @@ function exportSearchTerms(spuId, skuId) {
   if (!spu) return;
   const sku = spu.skus.find((item) => item.id === skuId);
   if (!sku) return;
-  const text = buildTextFromKeywordIds(sku.searchKeywords);
-  if (!text) {
+  const raw = buildTextFromKeywordIds(sku.searchKeywords);
+  if (!raw) {
     alert('该 SKU 的 Search Term 为空，请先生成或输入。');
     return;
   }
-  navigator.clipboard?.writeText(text).then(() => {
-    showToast('Search Term 已复制到剪贴板');
-  }).catch(() => {
-    showToast(`Search Term：${text}`, true);
-  });
+  const text = transformSearchText(raw);
+  navigator.clipboard
+    ?.writeText(text)
+    .then(() => {
+      showToast('Search Term 已复制到剪贴板');
+    })
+    .catch(() => {
+      showToast(`Search Term：${text}`, true);
+    });
 }
 
 function exportSubtitle(spuId) {
   const spu = state.spus.get(spuId);
   if (!spu) return;
-  const keywords = (spu.subtitleKeywords || [])
-    .map((keywordId) => state.keywords.get(keywordId)?.text)
-    .filter(Boolean);
-  if (!keywords.length) {
+  const raw = buildTextFromKeywordIds(spu.subtitleKeywords || []);
+  if (!raw) {
     alert('该 SPU 的父标题为空，请先拖入关键词或自动生成。');
     return;
   }
-  const subtitle = keywords.join(' ');
-  navigator.clipboard?.writeText(subtitle).then(() => {
-    showToast('父标题已复制到剪贴板');
-  }).catch(() => {
-    showToast(`父标题：${subtitle}`, true);
-  });
+  const subtitle = transformTitleText(raw);
+  navigator.clipboard
+    ?.writeText(subtitle)
+    .then(() => {
+      showToast('父标题已复制到剪贴板');
+    })
+    .catch(() => {
+      showToast(`父标题：${subtitle}`, true);
+    });
 }
 
 async function generateAllSearchTerms(spuId) {
