@@ -657,6 +657,11 @@ button.text.danger:hover {
   transition: border-color 0.2s ease, background 0.2s ease;
 }
 
+.title-dropzone.is-locked {
+  border-color: rgba(250, 82, 82, 0.45);
+  background: rgba(250, 82, 82, 0.08);
+}
+
 .title-dropzone.active {
   border-color: var(--accent);
   background: rgba(76, 110, 245, 0.12);
@@ -819,6 +824,29 @@ button.text.danger:hover {
   font-size: 0.78rem;
   color: var(--text-secondary);
   pointer-events: none;
+}
+
+.title-dropzone .lock-dropzone {
+  pointer-events: auto;
+  border: none;
+  background: transparent;
+  padding: 4px;
+  line-height: 1;
+  font-size: 1rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: var(--text-secondary);
+  transition: color 0.2s ease;
+}
+
+.title-dropzone .lock-dropzone:hover {
+  color: var(--accent);
+}
+
+.title-dropzone .lock-dropzone.is-locked {
+  color: #fa5252;
 }
 
 .title-dropzone .split-words {

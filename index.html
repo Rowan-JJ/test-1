@@ -239,6 +239,7 @@
         <h2>标题与 Search Term 预览区</h2>
         <div class="preview-actions">
           <button id="preview-export" class="secondary bulk-action" type="button">文案导出</button>
+          <button id="preview-color-swap" class="secondary" type="button">一键换色</button>
           <button id="preview-ai-review" class="secondary" type="button">AI 审查</button>
           <button id="preview-copy-titles" class="secondary" type="button">复制标题</button>
           <button id="preview-copy-search" class="secondary" type="button">复制 Search Term</button>
@@ -291,6 +292,7 @@
       <div class="title-dropzone" data-sku-id="">
         <p class="placeholder">拖放关键词到此处构建标题</p>
         <div class="dropzone-footer">
+          <button class="icon lock-dropzone" type="button" aria-pressed="false" title="锁定或解锁标题">🔓</button>
           <button class="text split-words" type="button">逐词细分</button>
           <button class="text trim-duplicates" type="button" hidden>删除多余重复词</button>
           <button class="text clear-dropzone" type="button" disabled>一键清空</button>
@@ -316,12 +318,13 @@
           data-sku-id=""
         >
           <p class="placeholder">拖放关键词组成 Search Term</p>
-        <div class="dropzone-footer">
-          <button class="text split-words" type="button">逐词细分</button>
-          <button class="text trim-duplicates" type="button" hidden>删除多余重复词</button>
-          <button class="text clear-dropzone" type="button" disabled>一键清空</button>
-          <span class="char-counter" data-counter-type="search">0 / 250</span>
-        </div>
+          <div class="dropzone-footer">
+            <button class="icon lock-dropzone" type="button" aria-pressed="false" title="锁定或解锁 Search Term">🔓</button>
+            <button class="text split-words" type="button">逐词细分</button>
+            <button class="text trim-duplicates" type="button" hidden>删除多余重复词</button>
+            <button class="text clear-dropzone" type="button" disabled>一键清空</button>
+            <span class="char-counter" data-counter-type="search">0 / 250</span>
+          </div>
         </div>
         <div class="title-annotation" hidden>
           <div class="annotation-text"></div>
@@ -351,12 +354,13 @@
         </div>
         <div class="title-dropzone subtitle-dropzone" data-container-type="subtitle" data-container-id="subtitle">
           <p class="placeholder">拖放关键词组成 SPU 父标题</p>
-        <div class="dropzone-footer">
-          <button class="text split-words" type="button">逐词细分</button>
-          <button class="text trim-duplicates" type="button" hidden>删除多余重复词</button>
-          <button class="text clear-dropzone" type="button" disabled>一键清空</button>
-          <span class="char-counter" data-counter-type="subtitle">0 / 125</span>
-        </div>
+          <div class="dropzone-footer">
+            <button class="icon lock-dropzone" type="button" aria-pressed="false" title="锁定或解锁父标题">🔓</button>
+            <button class="text split-words" type="button">逐词细分</button>
+            <button class="text trim-duplicates" type="button" hidden>删除多余重复词</button>
+            <button class="text clear-dropzone" type="button" disabled>一键清空</button>
+            <span class="char-counter" data-counter-type="subtitle">0 / 125</span>
+          </div>
         </div>
         <div class="title-annotation" hidden>
           <div class="annotation-text"></div>

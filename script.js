@@ -67,6 +67,10 @@ const COLOR_LABEL_TO_KEY = Object.entries(COLOR_KEY_ALIASES).reduce((map, [key, 
   return map;
 }, new Map());
 
+const BASE_COLOR_WORDS = Array.from(
+  new Set(Object.values(COLOR_CODE_MAP).map((value) => value.toLowerCase())),
+);
+
 const WORD_REPEAT_LIMIT = 2;
 
 const BANNED_AMAZON_WORDS = new Set(['best', 'sexy', 'deal', 'sell', 'cheapest', 'free']);
@@ -341,6 +345,84 @@ function applyKeywordWordCount(keyword, counts) {
 
 function getContainerKey(spuId, containerType, containerId) {
   return [spuId || 'spu', containerType || 'title', containerId || 'default'].join('::');
+}
+
+function getContainerLockTarget(spuId, containerType, containerId) {
+  const spu = state.spus.get(spuId);
+  if (!spu) {
+    return { spu: null, sku: null };
+  }
+  if (containerType === 'subtitle') {
+    return { spu, sku: null };
+  }
+  const skuId = containerId || null;
+  if (!skuId) {
+    return { spu, sku: null };
+  }
+  const sku = spu.skus?.find((item) => item.id === skuId) || null;
+  return { spu, sku };
+}
+
+function isContainerLocked(spuId, containerType, containerId) {
+  const { spu, sku } = getContainerLockTarget(spuId, containerType, containerId);
+  if (!spu) return false;
+  if (containerType === 'subtitle') {
+    return Boolean(spu.subtitleLocked);
+  }
+  if (!sku) return false;
+  if (containerType === 'sku') {
+    return Boolean(sku.titleLocked);
+  }
+  if (containerType === 'search') {
+    return Boolean(sku.searchLocked);
+  }
+  return false;
+}
+
+function setContainerLocked(spuId, containerType, containerId, locked) {
+  const { spu, sku } = getContainerLockTarget(spuId, containerType, containerId);
+  if (!spu) return;
+  if (containerType === 'subtitle') {
+    spu.subtitleLocked = Boolean(locked);
+    return;
+  }
+  if (!sku) return;
+  if (containerType === 'sku') {
+    sku.titleLocked = Boolean(locked);
+  } else if (containerType === 'search') {
+    sku.searchLocked = Boolean(locked);
+  }
+}
+
+function updateLockButtonVisual(button, locked) {
+  if (!button) return;
+  button.dataset.locked = locked ? 'true' : 'false';
+  button.setAttribute('aria-pressed', locked ? 'true' : 'false');
+  button.classList.toggle('is-locked', locked);
+  button.textContent = locked ? '🔒' : '🔓';
+  const action = locked ? '点击解锁' : '点击锁定';
+  button.title = `${locked ? '已锁定' : '未锁定'}，${action}`;
+  button.setAttribute('aria-label', button.title);
+}
+
+function toggleContainerLock(spuId, containerType, containerId) {
+  const locked = isContainerLocked(spuId, containerType, containerId);
+  const next = !locked;
+  setContainerLocked(spuId, containerType, containerId, next);
+  const { spu, sku } = getContainerLockTarget(spuId, containerType, containerId);
+  renderSpu(spuId);
+  let label = '标题';
+  if (containerType === 'subtitle') {
+    label = '父标题';
+  } else if (containerType === 'sku') {
+    const name = sku?.name || sku?.id || '';
+    label = name ? `SKU ${name} 标题` : 'SKU 标题';
+  } else if (containerType === 'search') {
+    const name = sku?.name || sku?.id || '';
+    label = name ? `SKU ${name} Search Term` : 'Search Term';
+  }
+  const statusText = next ? '已锁定' : '已解锁';
+  showToast(label ? `${label} ${statusText}` : statusText);
 }
 
 function registerTokenKeyword(token, ownerKey) {
@@ -840,6 +922,7 @@ const state = {
     titles: 'simple',
     search: 'simple',
   },
+  previewColorWords: new Set(),
   libraryCollapsed: false,
 };
 
@@ -1152,6 +1235,7 @@ const previewElements = {
   empty: document.getElementById('preview-empty'),
   aiButton: document.getElementById('preview-ai-review'),
   exportBtn: document.getElementById('preview-export'),
+  colorSwapBtn: document.getElementById('preview-color-swap'),
   copyTitlesBtn: document.getElementById('preview-copy-titles'),
   copySearchBtn: document.getElementById('preview-copy-search'),
 };
@@ -1636,6 +1720,23 @@ function renderDropzoneKeywords(dropzone, keywords, optionsFactory) {
   const clearButton = dropzone.querySelector('.clear-dropzone');
   if (clearButton) {
     clearButton.disabled = !keywordIds.length;
+  }
+  const lockButton = dropzone.querySelector('.lock-dropzone');
+  const containerType = dropzone.dataset.containerType || 'sku';
+  const containerId = dropzone.dataset.containerId || dropzone.dataset.skuId;
+  const spuId = dropzone.closest('[data-spu-id]')?.dataset.spuId;
+  const locked = spuId ? isContainerLocked(spuId, containerType, containerId) : false;
+  if (lockButton && spuId) {
+    lockButton.onclick = (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      toggleContainerLock(spuId, containerType, containerId);
+    };
+    updateLockButtonVisual(lockButton, locked);
+  }
+  if (typeof locked === 'boolean') {
+    dropzone.dataset.locked = locked ? 'true' : 'false';
+    dropzone.classList.toggle('is-locked', locked);
   }
   if (!keywordIds.length) {
     if (placeholder) placeholder.hidden = false;
@@ -2479,6 +2580,7 @@ function addSpu({ name, info }) {
     name,
     info,
     subtitleKeywords: [],
+    subtitleLocked: false,
     fivePointPrompt: DEFAULT_FIVE_POINT_PROMPT,
     fivePointPanelOpen: false,
     skus: [],
@@ -2495,6 +2597,8 @@ function addSku(spuId, { name }) {
     name,
     titleKeywords: [],
     searchKeywords: [],
+    titleLocked: false,
+    searchLocked: false,
   };
   spu.skus.push(sku);
   renderSpu(spuId);
@@ -2592,6 +2696,9 @@ function renderSpu(spuId, { append = false } = {}) {
   if (!spu) return;
   if (!Array.isArray(spu.subtitleKeywords)) {
     spu.subtitleKeywords = [];
+  }
+  if (typeof spu.subtitleLocked !== 'boolean') {
+    spu.subtitleLocked = false;
   }
   if (!spu.fivePointPrompt) {
     spu.fivePointPrompt = DEFAULT_FIVE_POINT_PROMPT;
@@ -2732,6 +2839,12 @@ function renderSku(spuId, sku) {
   const skuElement = skuTemplate.content.firstElementChild.cloneNode(true);
   skuElement.dataset.skuId = sku.id;
   skuElement.querySelector('.sku-title').textContent = sku.name || '未命名 SKU';
+  if (typeof sku.titleLocked !== 'boolean') {
+    sku.titleLocked = false;
+  }
+  if (typeof sku.searchLocked !== 'boolean') {
+    sku.searchLocked = false;
+  }
   const dropzone = skuElement.querySelector('.title-dropzone');
   dropzone.dataset.skuId = sku.id;
   dropzone.dataset.containerType = 'sku';
@@ -3112,8 +3225,13 @@ async function autoGenerateTitles(spuId) {
   ];
 
   const assignments = [];
+  let skipped = 0;
 
   for (const target of targets) {
+    if (isContainerLocked(spu.id, target.containerType, target.containerId)) {
+      skipped += 1;
+      continue;
+    }
     const isSubtitle = target.type === 'subtitle';
     const limit = getCharacterLimit(isSubtitle ? 'subtitle' : 'sku');
     let colorKeywords = [];
@@ -3167,12 +3285,24 @@ async function autoGenerateTitles(spuId) {
     });
   }
 
+  if (!assignments.length) {
+    renderSpu(spuId);
+    if (skipped) {
+      showToast('所有标题均处于锁定状态，未生成新标题');
+    }
+    return;
+  }
+
   for (const apply of assignments) {
     apply();
   }
 
   renderSpu(spuId);
-  showToast('已根据公式生成标题，可继续调整顺序');
+  if (skipped) {
+    showToast(`已生成标题，跳过 ${skipped} 个锁定区域`);
+  } else {
+    showToast('已根据公式生成标题，可继续调整顺序');
+  }
 }
 
 async function generateSearchTerms(spuId, skuId, options = {}) {
@@ -3180,6 +3310,12 @@ async function generateSearchTerms(spuId, skuId, options = {}) {
   if (!spu) return;
   const sku = spu.skus.find((item) => item.id === skuId);
   if (!sku) return;
+  if (sku.searchLocked) {
+    if (!options.silent) {
+      showToast('该 Search Term 已锁定，未生成');
+    }
+    return 'locked';
+  }
   if (!state.keywords.size) {
     if (!options.silent) {
       showToast('请先添加关键词', true);
@@ -3538,6 +3674,96 @@ function getPreviewCopyPayload(kind) {
     return '';
   }
   return formatPreviewItems(bucket.items, format, kind);
+}
+
+function getAllKnownColorWords() {
+  const words = new Set(BASE_COLOR_WORDS);
+  for (const spu of state.spus.values()) {
+    for (const sku of spu.skus) {
+      const color = (sku.colorText || '').trim().toLowerCase();
+      if (color) {
+        words.add(color);
+      }
+    }
+  }
+  if (state.previewColorWords) {
+    for (const word of state.previewColorWords) {
+      if (word) {
+        words.add(word);
+      }
+    }
+  }
+  const previewBuckets = [state.preview?.titles, state.preview?.search];
+  for (const bucket of previewBuckets) {
+    if (!bucket?.items?.length) continue;
+    for (const item of bucket.items) {
+      const text = (item?.text || '').toLowerCase();
+      if (!text) continue;
+      const pattern = /color\s+([a-z][a-z\s]+)/gi;
+      let match;
+      while ((match = pattern.exec(text))) {
+        const candidate = match[1]?.trim();
+        if (candidate) {
+          words.add(candidate);
+        }
+      }
+    }
+  }
+  return Array.from(words).filter(Boolean);
+}
+
+function replaceColorWordsInText(text, replacement, colorWords) {
+  if (!text) return text;
+  const list = Array.isArray(colorWords) ? colorWords : getAllKnownColorWords();
+  if (!list.length) return text;
+  const lowerReplacement = replacement.toLowerCase();
+  let result = text;
+  for (const color of list) {
+    if (!color) continue;
+    const pattern = new RegExp(`\\b${escapeRegExp(color)}\\b`, 'gi');
+    result = result.replace(pattern, lowerReplacement);
+  }
+  return result;
+}
+
+function applyPreviewColorSwap(newColor) {
+  const normalized = (newColor || '').trim();
+  if (!normalized) return false;
+  const lowerNormalized = normalized.toLowerCase();
+  if (state.previewColorWords instanceof Set) {
+    state.previewColorWords.add(lowerNormalized);
+  } else {
+    state.previewColorWords = new Set([lowerNormalized]);
+  }
+  const colorWords = getAllKnownColorWords();
+  if (!colorWords.length) return false;
+  let changed = false;
+  for (const kind of ['titles', 'search']) {
+    const bucket = getPreviewBucket(kind);
+    if (!bucket?.items?.length) continue;
+    let bucketChanged = false;
+    for (const item of bucket.items) {
+      if (!item || typeof item.text !== 'string') continue;
+      const updated = replaceColorWordsInText(item.text, normalized, colorWords);
+      if (updated !== item.text) {
+        item.text = updated;
+        changed = true;
+        bucketChanged = true;
+      }
+    }
+    if (bucketChanged) {
+      if (bucket.enableFrequency) {
+        bucket.frequencies = null;
+      }
+      if (bucket.reviews) {
+        bucket.reviews.clear();
+      }
+    }
+  }
+  if (changed) {
+    renderPreview();
+  }
+  return changed;
 }
 
 function renderPreview() {
@@ -4607,21 +4833,31 @@ async function generateAllSearchTerms(spuId) {
     return;
   }
   let success = 0;
+  let lockedCount = 0;
   const failed = [];
   for (const sku of spu.skus) {
     const result = await generateSearchTerms(spuId, sku.id, { silent: true, skipRender: true });
-    if (result) {
+    if (result === true) {
       success += 1;
+    } else if (result === 'locked') {
+      lockedCount += 1;
     } else {
       failed.push(sku.name || sku.id);
     }
   }
   renderSpu(spuId);
-  if (success) {
-    const message = failed.length
-      ? `已生成 ${success} 个 Search Term，未生成：${failed.join('、')}`
-      : `已为 ${success} 个 SKU 生成 Search Term`;
-    showToast(message, failed.length > 0);
+  if (success || lockedCount || failed.length) {
+    const parts = [];
+    if (success) {
+      parts.push(`已生成 ${success} 个 Search Term`);
+    }
+    if (lockedCount) {
+      parts.push(`跳过 ${lockedCount} 个锁定项`);
+    }
+    if (failed.length) {
+      parts.push(`未生成：${failed.join('、')}`);
+    }
+    showToast(parts.join('，'), failed.length > 0);
   } else {
     showToast('未能为任何 SKU 生成 Search Term，请检查关键词或标题', true);
   }
@@ -4859,6 +5095,33 @@ if (previewElements.exportBtn) {
     setPreviewItems('titles', titleItems);
     setPreviewItems('search', searchItems);
     showToast('文案已导出至预览区');
+  });
+}
+
+if (previewElements.colorSwapBtn) {
+  previewElements.colorSwapBtn.addEventListener('click', () => {
+    const titleBucket = getPreviewBucket('titles');
+    const searchBucket = getPreviewBucket('search');
+    const hasContent = Boolean(titleBucket?.items?.length || searchBucket?.items?.length);
+    if (!hasContent) {
+      showToast('请先执行文案导出', true);
+      return;
+    }
+    const input = prompt('请输入新的颜色词（英文）');
+    if (input == null) {
+      return;
+    }
+    const normalized = input.trim();
+    if (!normalized) {
+      showToast('颜色词不能为空', true);
+      return;
+    }
+    const changed = applyPreviewColorSwap(normalized);
+    if (changed) {
+      showToast('颜色词已批量替换');
+    } else {
+      showToast('未找到可替换的颜色词', true);
+    }
   });
 }
 
