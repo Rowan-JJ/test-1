@@ -1724,7 +1724,7 @@ function renderDropzoneKeywords(dropzone, keywords, optionsFactory) {
   const lockButton = dropzone.querySelector('.lock-dropzone');
   const containerType = dropzone.dataset.containerType || 'sku';
   const containerId = dropzone.dataset.containerId || dropzone.dataset.skuId;
-  const spuId = dropzone.closest('[data-spu-id]')?.dataset.spuId;
+  const spuId = dropzone.dataset.spuId || dropzone.closest('[data-spu-id]')?.dataset.spuId;
   const locked = spuId ? isContainerLocked(spuId, containerType, containerId) : false;
   if (lockButton && spuId) {
     lockButton.onclick = (event) => {
@@ -2849,6 +2849,7 @@ function renderSku(spuId, sku) {
   dropzone.dataset.skuId = sku.id;
   dropzone.dataset.containerType = 'sku';
   dropzone.dataset.containerId = sku.id;
+  dropzone.dataset.spuId = spuId;
   bindDropzoneEvents(dropzone);
 
   renderDropzoneKeywords(dropzone, sku.titleKeywords, (keywordId) => ({
@@ -2880,6 +2881,7 @@ function renderSku(spuId, sku) {
     searchDropzone.dataset.skuId = sku.id;
     searchDropzone.dataset.containerType = 'search';
     searchDropzone.dataset.containerId = sku.id;
+    searchDropzone.dataset.spuId = spuId;
     bindDropzoneEvents(searchDropzone);
     renderDropzoneKeywords(searchDropzone, sku.searchKeywords, (keywordId) => ({
       allowRemove: true,
