@@ -924,6 +924,7 @@ const state = {
   },
   previewColorWords: new Set(),
   libraryCollapsed: false,
+  librarySearchTerm: '',
 };
 
 function normalizeRank(value) {
@@ -1193,6 +1194,7 @@ function selectElementContents(element) {
 const libraryPanel = document.getElementById('library-section');
 const libraryBody = document.getElementById('library-body');
 const toggleLibraryBtn = document.getElementById('toggle-library');
+const librarySearchInput = document.getElementById('library-search');
 
 const keywordCategoryEls = {
   core: document.getElementById('keyword-list-core'),
@@ -1296,6 +1298,20 @@ if (exportKeywordsBtn) {
   exportKeywordsBtn.addEventListener('click', exportLibraryKeywords);
 }
 
+if (librarySearchInput) {
+  librarySearchInput.value = state.librarySearchTerm || '';
+  const handleLibrarySearch = (event) => {
+    const value = event?.target?.value ?? '';
+    if (state.librarySearchTerm === value) {
+      return;
+    }
+    state.librarySearchTerm = value;
+    renderKeywordLibrary();
+  };
+  librarySearchInput.addEventListener('input', handleLibrarySearch);
+  librarySearchInput.addEventListener('search', handleLibrarySearch);
+}
+
 function updateNavMetrics() {
   if (!topNav) return;
   const navHeight = topNav.offsetHeight;
@@ -1385,6 +1401,17 @@ function getKeywordHeatValue(keyword) {
   return Number.isFinite(keyword.heatValue) ? keyword.heatValue : Number.NEGATIVE_INFINITY;
 }
 
+function getKeywordSortableHeat(keyword) {
+  if (!keyword) return Number.NEGATIVE_INFINITY;
+  const base = getKeywordHeatValue(keyword);
+  if (keyword.token && keyword.sourceKeywordId) {
+    const source = state.keywords.get(keyword.sourceKeywordId);
+    const sourceHeat = getKeywordHeatValue(source);
+    return Math.max(base, sourceHeat);
+  }
+  return base;
+}
+
 function compareKeywordsForLibrary(a, b) {
   const heatDiff = getKeywordHeatValue(b) - getKeywordHeatValue(a);
   if (heatDiff !== 0) return heatDiff;
@@ -1472,6 +1499,12 @@ function createKeyword({ text, heat, rank, color, type }) {
 }
 
 function renderKeywordLibrary() {
+  const searchTerm = (state.librarySearchTerm || '').toString();
+  const normalizedSearch = searchTerm.trim().toLowerCase();
+  const hasSearch = Boolean(normalizedSearch);
+  if (librarySearchInput && librarySearchInput.value !== searchTerm) {
+    librarySearchInput.value = searchTerm;
+  }
   const groups = {};
   for (const { value } of KEYWORD_TYPES) {
     groups[value] = [];
@@ -1488,6 +1521,14 @@ function renderKeywordLibrary() {
   for (const keyword of state.keywords.values()) {
     if (keyword.virtual) continue;
     const type = KEYWORD_TYPES.some((item) => item.value === keyword.type) ? keyword.type : 'core';
+    if (hasSearch) {
+      const haystack = [keyword.text, keyword.rank, keyword.heat]
+        .filter((value) => value != null && value !== '')
+        .map((value) => value.toString().toLowerCase());
+      if (!haystack.some((value) => value.includes(normalizedSearch))) {
+        continue;
+      }
+    }
     if (!groups[type]) {
       groups[type] = [];
     }
@@ -1502,13 +1543,19 @@ function renderKeywordLibrary() {
     const countEl = keywordCategoryCountEls[value];
     const list = groups[value] || [];
     if (countEl) {
-      countEl.textContent = list.length ? `${list.length} 个词` : '';
+      if (list.length) {
+        countEl.textContent = `${list.length} 个词`;
+      } else if (hasSearch) {
+        countEl.textContent = '无匹配';
+      } else {
+        countEl.textContent = '';
+      }
     }
     if (!container) continue;
     if (!list.length) {
       const empty = document.createElement('p');
       empty.className = 'hint empty-hint';
-      empty.textContent = `暂无${label}`;
+      empty.textContent = hasSearch ? '未找到匹配的关键词' : `暂无${label}`;
       container.appendChild(empty);
       continue;
     }
@@ -2876,6 +2923,7 @@ function renderSku(spuId, sku) {
   const searchDropzone = skuElement.querySelector('.search-dropzone');
   const searchGenerateBtn = skuElement.querySelector('.search-generate');
   const searchExportBtn = skuElement.querySelector('.search-export');
+  const searchSortBtn = skuElement.querySelector('.search-sort');
 
   if (searchDropzone) {
     searchDropzone.dataset.skuId = sku.id;
@@ -2902,6 +2950,21 @@ function renderSku(spuId, sku) {
       searchClearBtn.addEventListener('click', () =>
         clearContainerKeywords(spuId, 'search', sku.id),
       );
+    }
+  }
+
+  if (searchSortBtn) {
+    searchSortBtn.addEventListener('click', () => sortSearchTermsByHeat(spuId, sku.id));
+    const locked = isContainerLocked(spuId, 'search', sku.id);
+    const hasKeywords = Array.isArray(sku.searchKeywords) && sku.searchKeywords.length > 0;
+    searchSortBtn.disabled = locked || !hasKeywords;
+    searchSortBtn.setAttribute('aria-disabled', searchSortBtn.disabled ? 'true' : 'false');
+    if (locked) {
+      searchSortBtn.title = 'Search Term 已锁定，无法重新排序';
+    } else if (!hasKeywords) {
+      searchSortBtn.title = '暂无关键词可排序';
+    } else {
+      searchSortBtn.title = '按热度重新排序 Search Term';
     }
   }
 
@@ -4802,6 +4865,53 @@ function exportSearchTerms(spuId, skuId) {
     .catch(() => {
       showToast(`Search Term：${text}`, true);
     });
+}
+
+function sortSearchTermsByHeat(spuId, skuId) {
+  const spu = state.spus.get(spuId);
+  if (!spu) return;
+  const sku = spu.skus.find((item) => item.id === skuId);
+  if (!sku) return;
+  if (isContainerLocked(spuId, 'search', skuId)) {
+    showToast('Search Term 已锁定，无法重新排序', true);
+    return;
+  }
+  const collection = getKeywordCollection(spu, 'search', skuId);
+  if (!Array.isArray(collection) || !collection.length) {
+    showToast('该 Search Term 暂无关键词', true);
+    return;
+  }
+  const items = collection.map((id, index) => {
+    const keyword = state.keywords.get(id);
+    return {
+      id,
+      index,
+      heat: getKeywordSortableHeat(keyword),
+      text: (keyword?.text || '').toLowerCase(),
+    };
+  });
+  items.sort((a, b) => {
+    const heatDiff = b.heat - a.heat;
+    if (heatDiff !== 0) return heatDiff;
+    const textDiff = a.text.localeCompare(b.text, 'zh-Hans-CN');
+    if (textDiff !== 0) return textDiff;
+    return a.index - b.index;
+  });
+  const reordered = items.map((item) => item.id);
+  let changed = false;
+  for (let i = 0; i < collection.length; i += 1) {
+    if (collection[i] !== reordered[i]) {
+      changed = true;
+      break;
+    }
+  }
+  if (!changed) {
+    showToast('Search Term 已按热度排序');
+    return;
+  }
+  collection.splice(0, collection.length, ...reordered);
+  renderSpu(spuId);
+  showToast('已按热度重新排序 Search Term');
 }
 
 function exportSubtitle(spuId) {
