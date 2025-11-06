@@ -289,6 +289,25 @@ p {
   background: rgba(76, 110, 245, 0.05);
 }
 
+.keyword-manage-layout {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20px;
+  align-items: flex-start;
+}
+
+.keyword-manage-column {
+  flex: 1 1 320px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+.keyword-manage-column > * {
+  width: 100%;
+}
+
 .type-color-grid {
   display: grid;
   gap: 12px;
@@ -435,8 +454,22 @@ button.text.danger:hover {
   flex: 1 1 auto;
   min-height: 0;
   height: 100%;
-  overflow: hidden;
+  overflow-y: auto;
+  overflow-x: hidden;
   padding-right: 4px;
+}
+
+.keyword-scroll::-webkit-scrollbar {
+  width: 6px;
+}
+
+.keyword-scroll::-webkit-scrollbar-thumb {
+  background: rgba(82, 96, 109, 0.25);
+  border-radius: 999px;
+}
+
+.keyword-scroll::-webkit-scrollbar-track {
+  background: transparent;
 }
 
 .library-header {
@@ -525,61 +558,36 @@ button.text.danger:hover {
 .keyword-categories {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 10px;
   padding-bottom: 6px;
-  height: 100%;
+  min-height: 0;
 }
 
 .keyword-category {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
   min-width: 0;
-  min-height: 0;
-  overflow: hidden;
-  flex: 1 1 0;
 }
 
 .keyword-category .keyword-list {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  flex: 1 1 auto;
-  min-height: 0;
-  height: 100%;
-  overflow-y: auto;
-  padding-right: 6px;
-  scrollbar-width: thin;
+  min-width: 0;
 }
 
-.keyword-category .keyword-list::-webkit-scrollbar {
-  width: 6px;
-}
-
-.keyword-category .keyword-list::-webkit-scrollbar-thumb {
-  background: rgba(82, 96, 109, 0.25);
-  border-radius: 999px;
-}
-
-.keyword-category .keyword-list::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.category-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.category-header h4 {
-  margin: 0;
-  font-size: 0.95rem;
+.keyword-category + .keyword-category {
+  padding-top: 6px;
+  border-top: 1px dashed rgba(255, 255, 255, 0.18);
 }
 
 .category-count {
-  font-size: 0.7rem;
-  color: var(--text-secondary);
+  font-size: 0.72rem;
+  color: rgba(255, 255, 255, 0.7);
+  display: block;
+  min-height: 1em;
+  margin-bottom: 2px;
 }
 
 .keyword-pill {

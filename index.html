@@ -74,31 +74,19 @@
             <div class="keyword-scroll">
               <div class="keyword-categories" id="keyword-categories">
                 <div class="keyword-category" data-type="core">
-                  <div class="category-header">
-                    <h4>核心词</h4>
-                    <span class="category-count" data-count-type="core"></span>
-                  </div>
+                  <span class="category-count" data-count-type="core"></span>
                   <div class="keyword-list" id="keyword-list-core"></div>
                 </div>
                 <div class="keyword-category" data-type="feature">
-                  <div class="category-header">
-                    <h4>特征词</h4>
-                    <span class="category-count" data-count-type="feature"></span>
-                  </div>
+                  <span class="category-count" data-count-type="feature"></span>
                   <div class="keyword-list" id="keyword-list-feature"></div>
                 </div>
                 <div class="keyword-category" data-type="scene">
-                  <div class="category-header">
-                    <h4>场景词</h4>
-                    <span class="category-count" data-count-type="scene"></span>
-                  </div>
+                  <span class="category-count" data-count-type="scene"></span>
                   <div class="keyword-list" id="keyword-list-scene"></div>
                 </div>
                 <div class="keyword-category" data-type="minor">
-                  <div class="category-header">
-                    <h4>小语种词</h4>
-                    <span class="category-count" data-count-type="minor"></span>
-                  </div>
+                  <span class="category-count" data-count-type="minor"></span>
                   <div class="keyword-list" id="keyword-list-minor"></div>
                 </div>
               </div>
@@ -110,86 +98,92 @@
         <div class="top-grid">
           <section class="panel keyword-panel" id="keyword-section">
             <h2>关键词管理</h2>
-            <form id="keyword-form" class="keyword-form">
-              <div class="field-group">
-                <label for="keyword-text">关键词</label>
-                <input id="keyword-text" name="keyword" type="text" required placeholder="输入关键词" />
-              </div>
-              <div class="field-group">
-                <label for="keyword-heat">热度变化</label>
-                <input id="keyword-heat" name="heat" type="text" placeholder="例如：+12%" />
-              </div>
-              <div class="field-group">
-                <label for="keyword-rank">搜索排名</label>
-                <input id="keyword-rank" name="rank" type="text" placeholder="例如：Top 10" />
-              </div>
-              <div class="field-group">
-                <label for="keyword-type">关键词类型</label>
-                <select id="keyword-type" name="type">
-                  <option value="core">核心词</option>
-                  <option value="feature">特征词</option>
-                  <option value="scene">场景词</option>
-                  <option value="minor">小语种词</option>
-                </select>
-              </div>
-              <div class="field-group color-picker">
-                <label for="keyword-color">颜色</label>
-                <input id="keyword-color" name="color" type="color" value="#FA5252" />
-              </div>
-              <button type="submit" class="primary">添加关键词</button>
-            </form>
+            <div class="keyword-manage-layout">
+              <div class="keyword-manage-column keyword-manage-form">
+                <form id="keyword-form" class="keyword-form">
+                  <div class="field-group">
+                    <label for="keyword-text">关键词</label>
+                    <input id="keyword-text" name="keyword" type="text" required placeholder="输入关键词" />
+                  </div>
+                  <div class="field-group">
+                    <label for="keyword-heat">热度变化</label>
+                    <input id="keyword-heat" name="heat" type="text" placeholder="例如：+12%" />
+                  </div>
+                  <div class="field-group">
+                    <label for="keyword-rank">搜索排名</label>
+                    <input id="keyword-rank" name="rank" type="text" placeholder="例如：Top 10" />
+                  </div>
+                  <div class="field-group">
+                    <label for="keyword-type">关键词类型</label>
+                    <select id="keyword-type" name="type">
+                      <option value="core">核心词</option>
+                      <option value="feature">特征词</option>
+                      <option value="scene">场景词</option>
+                      <option value="minor">小语种词</option>
+                    </select>
+                  </div>
+                  <div class="field-group color-picker">
+                    <label for="keyword-color">颜色</label>
+                    <input id="keyword-color" name="color" type="color" value="#FA5252" />
+                  </div>
+                  <button type="submit" class="primary">添加关键词</button>
+                </form>
 
-            <div class="type-color-panel">
-              <div class="library-header">
-                <h3>类型默认颜色</h3>
-              </div>
-              <p class="hint">设置不同类型的默认颜色，新建关键词会自动应用。</p>
-              <div class="type-color-grid" id="type-color-grid">
-                <label>
-                  <span>核心词</span>
-                  <input type="color" data-type="core" value="#FA5252" />
-                </label>
-                <label>
-                  <span>特征词</span>
-                  <input type="color" data-type="feature" value="#4C6EF5" />
-                </label>
-                <label>
-                  <span>场景词</span>
-                  <input type="color" data-type="scene" value="#12B886" />
-                </label>
-                <label>
-                  <span>小语种词</span>
-                  <input type="color" data-type="minor" value="#845EF7" />
-                </label>
-              </div>
-            </div>
-
-            <details class="bulk-keyword-panel" id="bulk-keyword-details">
-              <summary>批量上传关键词</summary>
-              <div class="bulk-body">
-                <textarea
-                  id="bulk-keyword-text"
-                  rows="5"
-                  placeholder="每行一个关键词，可按“关键词 | 热度 | 排名”格式填写，热度和排名可选"
-                ></textarea>
-                <div class="bulk-actions">
-                  <button id="bulk-keyword-submit" class="secondary bulk-action" type="button">识别并加入关键词库</button>
-                  <button id="bulk-keyword-clear" class="text" type="button">清空输入</button>
+                <div class="type-color-panel">
+                  <div class="library-header">
+                    <h3>类型默认颜色</h3>
+                  </div>
+                  <p class="hint">设置不同类型的默认颜色，新建关键词会自动应用。</p>
+                  <div class="type-color-grid" id="type-color-grid">
+                    <label>
+                      <span>核心词</span>
+                      <input type="color" data-type="core" value="#FA5252" />
+                    </label>
+                    <label>
+                      <span>特征词</span>
+                      <input type="color" data-type="feature" value="#4C6EF5" />
+                    </label>
+                    <label>
+                      <span>场景词</span>
+                      <input type="color" data-type="scene" value="#12B886" />
+                    </label>
+                    <label>
+                      <span>小语种词</span>
+                      <input type="color" data-type="minor" value="#845EF7" />
+                    </label>
+                  </div>
                 </div>
-                <p class="hint">批量上传的关键词将进入预备关键词区，系统会自动调用 DeepSeek 识别类型后加入关键词库。</p>
               </div>
-            </details>
 
-            <div class="pending-keyword-panel" id="pending-keyword-panel" hidden>
-              <div class="library-header">
-                <h3>预备关键词</h3>
-                <p class="hint">等待分类或分类失败的关键词会显示在这里。</p>
-              </div>
-              <ul class="pending-keyword-list" id="pending-keyword-list"></ul>
-              <div class="pending-bulk-actions" id="pending-bulk-actions">
-                <button id="pending-retry-all" class="secondary bulk-action" type="button" hidden>
-                  重新识别全部失败词
-                </button>
+              <div class="keyword-manage-column keyword-manage-bulk">
+                <details class="bulk-keyword-panel" id="bulk-keyword-details">
+                  <summary>批量上传关键词</summary>
+                  <div class="bulk-body">
+                    <textarea
+                      id="bulk-keyword-text"
+                      rows="5"
+                      placeholder="每行一个关键词，可按“关键词 | 热度 | 排名”格式填写，热度和排名可选"
+                    ></textarea>
+                    <div class="bulk-actions">
+                      <button id="bulk-keyword-submit" class="secondary bulk-action" type="button">识别并加入关键词库</button>
+                      <button id="bulk-keyword-clear" class="text" type="button">清空输入</button>
+                    </div>
+                    <p class="hint">批量上传的关键词将进入预备关键词区，系统会自动调用 DeepSeek 识别类型后加入关键词库。</p>
+                  </div>
+                </details>
+
+                <div class="pending-keyword-panel" id="pending-keyword-panel" hidden>
+                  <div class="library-header">
+                    <h3>预备关键词</h3>
+                    <p class="hint">等待分类或分类失败的关键词会显示在这里。</p>
+                  </div>
+                  <ul class="pending-keyword-list" id="pending-keyword-list"></ul>
+                  <div class="pending-bulk-actions" id="pending-bulk-actions">
+                    <button id="pending-retry-all" class="secondary bulk-action" type="button" hidden>
+                      重新识别全部失败词
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
           </section>
