@@ -3073,8 +3073,8 @@ function buildTitleCombination({
 
   const connectors = ['for', 'and', 'with'];
 
-  const brandTokens = new Set(getKeywordWordTokens(brandKeyword));
-  const trailingTokens = new Set();
+    const brandTokens = new Set(getKeywordWordTokens(brandKeyword));
+    const trailingTokens = new Set();
   for (const trailing of colorKeywords || []) {
     for (const token of getKeywordWordTokens(trailing)) {
       trailingTokens.add(token);
@@ -3206,6 +3206,104 @@ function buildTitleCombination({
   return null;
 }
 
+function buildLooseTitleCombination({ pools, limit, isSubtitle, colorKeywords }) {
+  const brandKeyword = state.keywords.get(FIXED_KEYWORDS.brand.id) || FIXED_KEYWORDS.brand;
+  const slotPlan = [
+    { type: 'core' },
+    { type: 'feature' },
+    { type: 'core' },
+    { type: 'feature' },
+    { type: 'feature' },
+    { type: 'scene' },
+    { type: 'scene' },
+  ];
+
+  const pickFromPool = (list = []) => {
+    if (!list.length) return null;
+    const sorted = list
+      .slice()
+      .sort((a, b) => getKeywordHeatValue(b) - getKeywordHeatValue(a));
+    return sorted[Math.floor(Math.random() * sorted.length)] || sorted[0];
+  };
+
+  const selections = [];
+  for (const slot of slotPlan) {
+    const pool = pools[slot.type];
+    if (!pool || !pool.length) {
+      return null;
+    }
+    const choice = pickFromPool(pool);
+    if (choice) {
+      selections.push(choice);
+    }
+  }
+
+  const segments = [];
+  const wordCounts = new Map();
+  const allKeywords = [brandKeyword, ...selections];
+  if (!isSubtitle && Array.isArray(colorKeywords)) {
+    allKeywords.push(...colorKeywords);
+  }
+
+  const connectors = ['for', 'and', 'with'];
+  let connectorIndex = 0;
+  const addToken = (word, keyword) => {
+    const norm = normalizeWordToken(word);
+    if (!norm) return;
+    const next = (wordCounts.get(norm) || 0) + 1;
+    if (next > WORD_REPEAT_LIMIT) return;
+    wordCounts.set(norm, next);
+    const color = keyword.color || '#ffffff';
+    const textColor = keyword.textColor || getReadableTextColor(color);
+    segments.push({
+      text: word,
+      color,
+      textColor,
+      sourceId: keyword.id,
+    });
+  };
+
+  for (let i = 0; i < allKeywords.length; i += 1) {
+    const keyword = allKeywords[i];
+    const tokens = splitKeywordIntoWords(keyword.text);
+    if (segments.length && tokens.length) {
+      const connector = connectors[connectorIndex % connectors.length];
+      connectorIndex += 1;
+      addToken(connector, {
+        id: '__connector',
+        color: '#e8f1ff',
+        textColor: '#1f2933',
+      });
+    }
+    for (const token of tokens) {
+      addToken(token, keyword);
+    }
+  }
+
+  if (!segments.length) return null;
+
+  const measureLength = (list) =>
+    list.reduce((total, seg, index) => {
+      const len = (seg.text || '').trim().length;
+      if (!len) return total;
+      if (index > 0) return total + len + 1;
+      return total + len;
+    }, 0);
+
+  let currentLength = measureLength(segments);
+  if (currentLength > limit) {
+    for (let i = segments.length - 1; i >= 0 && currentLength > limit; i -= 1) {
+      const removed = segments.pop();
+      currentLength = measureLength(segments);
+      if (!removed) break;
+    }
+  }
+
+  if (!segments.length) return null;
+
+  return { tokens: segments, length: currentLength };
+}
+
 async function autoGenerateTitles(spuId) {
   const spu = state.spus.get(spuId);
   if (!spu) return;
@@ -3298,6 +3396,15 @@ async function autoGenerateTitles(spuId) {
       }
       combination = candidate;
       break;
+    }
+
+    if (!combination) {
+      combination = buildLooseTitleCombination({
+        pools,
+        limit,
+        isSubtitle,
+        colorKeywords,
+      });
     }
 
     if (!combination) {
