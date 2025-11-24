@@ -3164,18 +3164,42 @@ function findImportantKeywords(phrases, pools, usedIds = new Set()) {
   return ranked.slice(0, 3);
 }
 
-function applyKeywordsToContainer(spu, containerType, containerId, keywords, limit) {
+function applyKeywordsToContainer(
+  spu,
+  containerType,
+  containerId,
+  keywords,
+  limit,
+  { splitIntoTokens = false } = {},
+) {
   const ownerKey = getContainerKey(spu.id, containerType, containerId);
   cleanupTokensForOwner(ownerKey);
   const keywordIds = (keywords || []).map((item) => item.id).filter(Boolean);
-  const tokenIds = assignTokensToContainer(spu.id, containerType, containerId, keywordIds);
-  while (tokenIds.length > 1 && measureKeywordIdsLength(tokenIds) > limit) {
-    const removed = tokenIds.pop();
-    unregisterTokenKeyword(removed);
+  let finalIds = [];
+
+  if (splitIntoTokens) {
+    finalIds = assignTokensToContainer(spu.id, containerType, containerId, keywordIds);
+  } else {
+    for (const keywordId of keywordIds) {
+      const keyword = state.keywords.get(keywordId);
+      if (!keyword) continue;
+      if (keyword.token) {
+        transferTokenOwnership(keyword, ownerKey);
+      }
+      finalIds.push(keyword.id);
+    }
+  }
+
+  while (finalIds.length > 1 && measureKeywordIdsLength(finalIds) > limit) {
+    const removed = finalIds.pop();
+    const removedKeyword = state.keywords.get(removed);
+    if (removedKeyword?.token) {
+      unregisterTokenKeyword(removed);
+    }
   }
   const collection = getKeywordCollection(spu, containerType, containerId);
   if (collection) {
-    collection.splice(0, collection.length, ...tokenIds);
+    collection.splice(0, collection.length, ...finalIds);
   }
 }
 
@@ -3513,6 +3537,27 @@ async function generateChildTitles(spuId) {
     return;
   }
 
+  const normalizedTokens = baseKeywords
+    .map((token) => {
+      const source =
+        token?.token && token.sourceKeywordId
+          ? state.keywords.get(token.sourceKeywordId)
+          : token;
+      if (!source) return null;
+      const color = token.color || source.color || '#ffffff';
+      const textColor = token.textColor || source.textColor || getReadableTextColor(color);
+      return {
+        id: token.id,
+        text: token.text || source.text || '',
+        token: Boolean(token.token),
+        color,
+        textColor,
+        sourceKeywordId: source.id,
+        type: source.type,
+      };
+    })
+    .filter((item) => item && item.text);
+
   let skipped = 0;
   const updates = [];
   const brandId = FIXED_KEYWORDS.brand.id;
@@ -3533,21 +3578,13 @@ async function generateChildTitles(spuId) {
       const ownerKey = getContainerKey(spu.id, 'sku', sku.id);
       cleanupTokensForOwner(ownerKey);
 
-      const brandTokens = baseKeywords.filter((token) => token.sourceKeywordId === brandId);
-      const nonBrandTokens = baseKeywords.filter((token) => token.sourceKeywordId !== brandId);
-      const coreSourceId = nonBrandTokens
-        .map((token) => state.keywords.get(token.sourceKeywordId))
-        .find((keyword) => keyword?.type === 'core')?.id;
+      const brandTokens = normalizedTokens.filter((token) => token.sourceKeywordId === brandId);
+      const nonBrandTokens = normalizedTokens.filter((token) => token.sourceKeywordId !== brandId);
+      const coreSourceId = nonBrandTokens.find((token) => token.type === 'core')?.sourceKeywordId;
       const coreTokens = nonBrandTokens.filter((token) => token.sourceKeywordId === coreSourceId);
       const remainingTokens = nonBrandTokens.filter((token) => token.sourceKeywordId !== coreSourceId);
-      const sceneTokens = remainingTokens.filter((token) => {
-        const source = state.keywords.get(token.sourceKeywordId);
-        return source?.type === 'scene';
-      });
-      const middleTokens = remainingTokens.filter((token) => {
-        const source = state.keywords.get(token.sourceKeywordId);
-        return source?.type !== 'scene';
-      });
+      const sceneTokens = remainingTokens.filter((token) => token.type === 'scene');
+      const middleTokens = remainingTokens.filter((token) => token.type !== 'scene');
 
       const sequence = [];
       sequence.push(...brandTokens);

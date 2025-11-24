@@ -869,6 +869,10 @@ button.text.danger:hover {
   pointer-events: none;
 }
 
+.title-dropzone .ai-refine {
+  pointer-events: auto;
+}
+
 .title-dropzone .lock-dropzone {
   pointer-events: auto;
   border: none;
