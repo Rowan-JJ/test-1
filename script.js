@@ -3076,8 +3076,6 @@ function buildTitleCombination({
     { type: 'scene' },
   ];
 
-  const connectors = ['for', 'and', 'with'];
-
     const brandTokens = new Set(getKeywordWordTokens(brandKeyword));
     const trailingTokens = new Set();
   for (const trailing of colorKeywords || []) {
@@ -3149,27 +3147,11 @@ function buildTitleCombination({
       allKeywords.push(...colorKeywords);
     }
 
-    let connectorIndex = 0;
     for (let i = 0; i < allKeywords.length; i += 1) {
       const keyword = allKeywords[i];
       const tokens = splitKeywordIntoWords(keyword.text);
       const keywordColor = keyword.color || '#ffffff';
       const keywordTextColor = keyword.textColor || getReadableTextColor(keywordColor);
-
-      if (segments.length && tokens.length) {
-        const connector = connectors[connectorIndex % connectors.length];
-        connectorIndex += 1;
-        const norm = normalizeWordToken(connector);
-        if (!usedWordsForTokens.has(norm)) {
-          segments.push({
-            text: connector,
-            color: '#e8f1ff',
-            textColor: '#1f2933',
-            sourceId: '__connector',
-          });
-          usedWordsForTokens.add(norm);
-        }
-      }
 
       for (const word of tokens) {
         const norm = normalizeWordToken(word);
@@ -3250,8 +3232,6 @@ function buildLooseTitleCombination({ pools, limit, isSubtitle, colorKeywords })
     allKeywords.push(...colorKeywords);
   }
 
-  const connectors = ['for', 'and', 'with'];
-  let connectorIndex = 0;
   const addToken = (word, keyword) => {
     const norm = normalizeWordToken(word);
     if (!norm) return;
@@ -3271,15 +3251,6 @@ function buildLooseTitleCombination({ pools, limit, isSubtitle, colorKeywords })
   for (let i = 0; i < allKeywords.length; i += 1) {
     const keyword = allKeywords[i];
     const tokens = splitKeywordIntoWords(keyword.text);
-    if (segments.length && tokens.length) {
-      const connector = connectors[connectorIndex % connectors.length];
-      connectorIndex += 1;
-      addToken(connector, {
-        id: '__connector',
-        color: '#e8f1ff',
-        textColor: '#1f2933',
-      });
-    }
     for (const token of tokens) {
       addToken(token, keyword);
     }
@@ -3505,12 +3476,17 @@ async function generateChildTitles(spuId) {
 
   const results = await Promise.all(updates.map((fn) => fn()));
   renderSpu(spuId);
-  if (results.some((ok) => ok)) {
+  const successCount = results.filter(Boolean).length;
+  if (successCount) {
     if (skipped) {
       showToast(`已生成子 SKU 标题，跳过 ${skipped} 个锁定区域`);
     } else {
       showToast('已根据父标题生成子 SKU 标题，可继续微调顺序');
     }
+  } else if (skipped) {
+    showToast('所有子 SKU 标题均被锁定，未生成新内容', true);
+  } else {
+    showToast('未能生成子 SKU 标题，请检查父标题或颜色尺码信息', true);
   }
 }
 
@@ -4171,6 +4147,13 @@ function createPreviewItem(item, label, bucketKey) {
   }
 
   wrapper.appendChild(box);
+
+  if (review && review.suggestion) {
+    const suggestion = document.createElement('div');
+    suggestion.className = 'preview-suggestion';
+    suggestion.textContent = `可读性建议：${review.suggestion}`;
+    wrapper.appendChild(suggestion);
+  }
   return wrapper;
 }
 
@@ -4475,7 +4458,15 @@ function normalizeAiReviewEntry(raw) {
   if (!status) {
     status = issues.length ? 'error' : 'ok';
   }
-  return { id, status, issues };
+  let suggestion = '';
+  if (typeof raw.suggestion === 'string') {
+    suggestion = raw.suggestion.trim();
+  } else if (typeof raw.advice === 'string') {
+    suggestion = raw.advice.trim();
+  } else if (typeof raw.tip === 'string') {
+    suggestion = raw.tip.trim();
+  }
+  return { id, status, issues, suggestion };
 }
 
 
@@ -4741,13 +4732,14 @@ function evaluateReviewAgainstContext(review, context) {
     }
   }
 
+  const suggestion = typeof review.suggestion === 'string' ? review.suggestion.trim() : '';
   if (errorMessages.size) {
-    return { status: 'error', message: Array.from(errorMessages).join('；') };
+    return { status: 'error', message: Array.from(errorMessages).join('；'), suggestion };
   }
   if (warnMessages.size) {
-    return { status: 'warn', message: Array.from(warnMessages).join('；') };
+    return { status: 'warn', message: Array.from(warnMessages).join('；'), suggestion };
   }
-  return { status: 'ok', message: '' };
+  return { status: 'ok', message: '', suggestion };
 }
 
 async function reviewPreviewWithAI() {
@@ -4818,8 +4810,8 @@ async function reviewPreviewWithAI() {
 
     const schemaInstruction =
       '请严格按照以下 JSON 结构返回结果：\n[' +
-      '\n  {"id":"示例","status":"ok","issues":[{"code":"LENGTH","term":"","count":null,"limit":200,"actual":210,"detail":"字数超限：实际 210 字符，超过上限 200 字符"}]}' +
-      '\n]\n请仅输出 JSON 数组，不得返回额外文字；status 只能是 ok 或 error；issues 在无问题时必须是空数组；detail 必须使用简体中文并遵循“问题类型：具体说明”的格式；code 仅允许 LENGTH、BRAND、BANNED_WORD、WORD_REPEAT、CASE、OTHER；id 必须与提供的数据一致。';
+      '\n  {"id":"示例","status":"ok","issues":[{"code":"LENGTH","term":"","count":null,"limit":200,"actual":210,"detail":"字数超限：实际 210 字符，超过上限 200 字符"}],"suggestion":"用中文提供可读性提升建议"}]' +
+      '\n]\n请仅输出 JSON 数组，不得返回额外文字；status 只能是 ok 或 error；issues 在无问题时必须是空数组；detail 必须使用简体中文并遵循“问题类型：具体说明”的格式；code 仅允许 LENGTH、BRAND、BANNED_WORD、WORD_REPEAT、CASE、OTHER；id 必须与提供的数据一致；suggestion 为可选字段，用简体中文给出提升可读性的建议。';
 
     const brandRule = blockedBrands
       ? `除 Popilush 外，如出现下列品牌词（忽略大小写）视为问题：${blockedBrands}。`
@@ -4859,7 +4851,7 @@ ${payload}`;
           {
             role: 'system',
             content:
-              '你是一名亚马逊 Listing 合规审核员。请根据用户提供的规则返回 JSON 数组，勿输出 JSON 以外的文字。数组元素须包含 id、status、issues 字段，issues 为对象数组，对象需包含 code、term、count、limit、actual、detail 字段，code 只能取 LENGTH、BRAND、BANNED_WORD、WORD_REPEAT、CASE、OTHER，detail 必须使用简体中文并遵循“问题类型：具体说明”的格式。',
+              '你是一名亚马逊 Listing 合规审核员。请根据用户提供的规则返回 JSON 数组，勿输出 JSON 以外的文字。数组元素须包含 id、status、issues 字段，可选 suggestion 字段用简体中文给出提升可读性的建议；issues 为对象数组，对象需包含 code、term、count、limit、actual、detail 字段，code 只能取 LENGTH、BRAND、BANNED_WORD、WORD_REPEAT、CASE、OTHER，detail 必须使用简体中文并遵循“问题类型：具体说明”的格式。',
           },
           { role: 'user', content: prompt },
         ],

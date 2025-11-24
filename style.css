@@ -1595,6 +1595,15 @@ button.text.danger:hover {
   cursor: text;
 }
 
+.preview-suggestion {
+  font-size: 0.86rem;
+  color: var(--text-secondary);
+  padding: 6px 10px;
+  border-left: 3px solid rgba(76, 110, 245, 0.35);
+  background: rgba(76, 110, 245, 0.06);
+  border-radius: 6px;
+}
+
 .preview-status-icon {
   flex: 0 0 auto;
   font-size: 0.9rem;
