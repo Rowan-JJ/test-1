@@ -2990,6 +2990,7 @@ function bindDropzoneEvents(dropzone) {
 function bindSpuEvents(card, spuId) {
   const addSkuBtn = card.querySelector('.add-sku');
   const autoGenerateBtn = card.querySelector('.auto-generate');
+  const childGenerateBtn = card.querySelector('.generate-children');
   const subtitleExportBtn = card.querySelector('.subtitle-export');
   const bulkGenerateSearchBtn = card.querySelector('.bulk-generate-search');
   const deleteSpuBtn = card.querySelector('.delete-spu');
@@ -3029,6 +3030,10 @@ function bindSpuEvents(card, spuId) {
 
   if (autoGenerateBtn) {
     autoGenerateBtn.onclick = () => autoGenerateTitles(spuId);
+  }
+
+  if (childGenerateBtn) {
+    childGenerateBtn.onclick = () => generateChildTitles(spuId);
   }
 
   if (subtitleExportBtn) {
@@ -3346,15 +3351,6 @@ async function autoGenerateTitles(spuId) {
         spu.subtitleKeywords = keywords;
       },
     },
-    ...spu.skus.map((sku) => ({
-      type: 'sku',
-      sku,
-      containerType: 'sku',
-      containerId: sku.id,
-      apply: (keywords) => {
-        sku.titleKeywords = keywords;
-      },
-    })),
   ];
 
   const assignments = [];
@@ -3366,19 +3362,9 @@ async function autoGenerateTitles(spuId) {
       continue;
     }
     const isSubtitle = target.type === 'subtitle';
-    const limit = getCharacterLimit(isSubtitle ? 'subtitle' : 'sku');
-    let colorKeywords = [];
-    let colorText = '';
-
-    if (!isSubtitle) {
-      const ensured = await ensureColorSizeKeywordsForSku(target.sku);
-      if (!ensured) {
-        showToast(`请补充 SKU ${target.sku?.name || ''} 的颜色或尺码信息`, true);
-        return;
-      }
-      colorKeywords = [ensured.color, ensured.size].filter(Boolean);
-      colorText = target.sku?.colorText || '';
-    }
+    const limit = getCharacterLimit('subtitle');
+    const colorKeywords = [];
+    const colorText = '';
 
     let combination = null;
     const MAX_ATTEMPTS = 24;
@@ -3434,7 +3420,7 @@ async function autoGenerateTitles(spuId) {
   if (!assignments.length) {
     renderSpu(spuId);
     if (skipped) {
-      showToast('所有标题均处于锁定状态，未生成新标题');
+      showToast('父标题已锁定，未生成新标题');
     }
     return;
   }
@@ -3445,9 +3431,86 @@ async function autoGenerateTitles(spuId) {
 
   renderSpu(spuId);
   if (skipped) {
-    showToast(`已生成标题，跳过 ${skipped} 个锁定区域`);
+    showToast('已生成父标题，跳过锁定区域');
   } else {
-    showToast('已根据公式生成标题，可继续调整顺序');
+    showToast('已生成父标题，可在此基础上生成子 SKU 标题');
+  }
+}
+
+function rotateTokens(tokens, offset) {
+  if (!tokens.length) return [];
+  const shift = offset % tokens.length;
+  if (shift === 0) return tokens.slice();
+  return tokens.slice(shift).concat(tokens.slice(0, shift));
+}
+
+async function generateChildTitles(spuId) {
+  const spu = state.spus.get(spuId);
+  if (!spu) return;
+  if (!Array.isArray(spu.subtitleKeywords) || !spu.subtitleKeywords.length) {
+    showToast('请先生成或填写父标题', true);
+    return;
+  }
+  const baseKeywords = spu.subtitleKeywords
+    .map((id) => state.keywords.get(id))
+    .filter((item) => item && item.text);
+  if (!baseKeywords.length) {
+    showToast('父标题为空，无法生成子 SKU 标题', true);
+    return;
+  }
+
+  let skipped = 0;
+  const updates = [];
+
+  spu.skus.forEach((sku, index) => {
+    if (isContainerLocked(spu.id, 'sku', sku.id)) {
+      skipped += 1;
+      return;
+    }
+    updates.push(async () => {
+      const ensured = await ensureColorSizeKeywordsForSku(sku);
+      if (!ensured) {
+        showToast(`请补充 SKU ${sku.name || ''} 的颜色或尺码信息`, true);
+        return false;
+      }
+      const rotated = rotateTokens(baseKeywords, index);
+      const limit = getCharacterLimit('sku');
+      const ownerKey = getContainerKey(spu.id, 'sku', sku.id);
+      cleanupTokensForOwner(ownerKey);
+      const tokenIds = [];
+
+      const addToken = (token) => {
+        const tokenId = createTokenFromWord(token.text, {
+          ownerKey,
+          sourceId: token.sourceKeywordId || token.id,
+          color: token.color,
+          textColor: token.textColor,
+        });
+        if (tokenId) tokenIds.push(tokenId);
+      };
+
+      rotated.forEach(addToken);
+      [ensured.color, ensured.size].filter(Boolean).forEach(addToken);
+
+      // Trim from the end if over limit while keeping at least one token
+      while (tokenIds.length > 1 && calculateContainerLength(tokenIds) > limit) {
+        const removedId = tokenIds.pop();
+        unregisterTokenKeyword(removedId);
+      }
+
+      sku.titleKeywords = tokenIds;
+      return true;
+    });
+  });
+
+  const results = await Promise.all(updates.map((fn) => fn()));
+  renderSpu(spuId);
+  if (results.some((ok) => ok)) {
+    if (skipped) {
+      showToast(`已生成子 SKU 标题，跳过 ${skipped} 个锁定区域`);
+    } else {
+      showToast('已根据父标题生成子 SKU 标题，可继续微调顺序');
+    }
   }
 }
 
