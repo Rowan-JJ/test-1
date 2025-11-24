@@ -3095,23 +3095,31 @@ function buildTitleCombination({
         break;
       }
 
-      const ranked = pool
-        .filter((keyword) => !(colorText && keywordConflictsWithColor(keyword, colorText)))
-        .map((keyword) => {
-          const tokens = getKeywordWordTokens(keyword);
-          const newTokens = tokens.filter((token) => !usedWords.has(token));
-          return {
-            keyword,
-            newCount: newTokens.length,
-            heat: getKeywordHeatValue(keyword),
-            tokens,
-          };
-        })
-        .sort((a, b) => {
-          if (b.newCount !== a.newCount) return b.newCount - a.newCount;
-          if (b.heat !== a.heat) return b.heat - a.heat;
-          return Math.random() - 0.5;
-        });
+      const rankPool = (sourcePool) =>
+        sourcePool
+          .map((keyword) => {
+            const tokens = getKeywordWordTokens(keyword);
+            const newTokens = tokens.filter((token) => !usedWords.has(token));
+            return {
+              keyword,
+              newCount: newTokens.length,
+              heat: getKeywordHeatValue(keyword),
+              tokens,
+            };
+          })
+          .sort((a, b) => {
+            if (b.newCount !== a.newCount) return b.newCount - a.newCount;
+            if (b.heat !== a.heat) return b.heat - a.heat;
+            return Math.random() - 0.5;
+          });
+
+      let ranked = rankPool(
+        pool.filter((keyword) => !(colorText && keywordConflictsWithColor(keyword, colorText))),
+      );
+
+      if (!ranked.length) {
+        ranked = rankPool(pool);
+      }
 
       const choice = ranked.find((item) => item.tokens.some((token) => !usedWords.has(token))) || ranked[0];
       if (!choice) {
