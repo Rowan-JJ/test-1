@@ -1235,7 +1235,6 @@ const spuSummaryEmpty = document.getElementById('spu-summary-empty');
 const previewElements = {
   container: document.getElementById('preview-list'),
   empty: document.getElementById('preview-empty'),
-  aiButton: document.getElementById('preview-ai-review'),
   exportBtn: document.getElementById('preview-export'),
   colorSwapBtn: document.getElementById('preview-color-swap'),
   copyTitlesBtn: document.getElementById('preview-copy-titles'),
@@ -1755,6 +1754,7 @@ function renderDropzoneKeywords(dropzone, keywords, optionsFactory) {
   const shouldAnnotate = Boolean(annotationContainer);
   const keywordIds = Array.isArray(keywords) ? keywords : [];
   const hasTokens = keywordIds.some((keywordId) => state.keywords.get(keywordId)?.token);
+  const aiButton = dropzone.querySelector('.ai-refine');
   const splitButton = dropzone.querySelector('.split-words');
   if (splitButton) {
     splitButton.disabled = !keywordIds.length;
@@ -1784,6 +1784,9 @@ function renderDropzoneKeywords(dropzone, keywords, optionsFactory) {
   if (typeof locked === 'boolean') {
     dropzone.dataset.locked = locked ? 'true' : 'false';
     dropzone.classList.toggle('is-locked', locked);
+  }
+  if (aiButton) {
+    aiButton.disabled = locked || !keywordIds.length;
   }
   if (!keywordIds.length) {
     if (placeholder) placeholder.hidden = false;
@@ -2776,6 +2779,10 @@ function renderSpu(spuId, { append = false } = {}) {
       splitContainerIntoTokens(spu.id, 'subtitle', 'subtitle'),
     );
   }
+  const subtitleAiBtn = subtitleDropzone.querySelector('.ai-refine');
+  if (subtitleAiBtn) {
+    subtitleAiBtn.addEventListener('click', () => optimizeSingleTitle(spu.id, 'subtitle', 'subtitle'));
+  }
   const subtitleTrimBtn = subtitleDropzone.querySelector('.trim-duplicates');
   if (subtitleTrimBtn) {
     subtitleTrimBtn.addEventListener('click', () =>
@@ -2906,6 +2913,10 @@ function renderSku(spuId, sku) {
   const splitBtn = dropzone.querySelector('.split-words');
   if (splitBtn) {
     splitBtn.addEventListener('click', () => splitContainerIntoTokens(spuId, 'sku', sku.id));
+  }
+  const aiBtn = dropzone.querySelector('.ai-refine');
+  if (aiBtn) {
+    aiBtn.addEventListener('click', () => optimizeSingleTitle(spuId, 'sku', sku.id));
   }
   const trimBtn = dropzone.querySelector('.trim-duplicates');
   if (trimBtn) {
@@ -3051,6 +3062,148 @@ function bindSpuEvents(card, spuId) {
   };
 }
 
+
+async function extractImportantFeatures(spu) {
+  const info = (spu?.info || '').trim();
+  if (!info) {
+    showToast('请先填写商品信息（支持中英文）', true);
+    return { features: [], englishInfo: '' };
+  }
+
+  const apiKey = apiKeyInput.value.trim();
+  if (!apiKey) {
+    showToast('请先输入有效的 DeepSeek API Key', true);
+    return { features: [], englishInfo: info };
+  }
+
+  const prompt =
+    '请阅读以下商品信息，若不是英文请翻译成英文；提取 3-6 个能精准描述产品特征的英文短语（2-4 个词），如 long sleeve、square neck。' +
+    '\n返回 JSON，格式为 {"englishInfo":"英文描述","features":["特征短语1","特征短语2"]}，仅输出 JSON。' +
+    `\n商品信息：${info}`;
+
+  try {
+    const response = await fetch('https://api.deepseek.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: 'deepseek-chat',
+        messages: [
+          { role: 'system', content: 'You extract key feature phrases for Amazon apparel listings and respond with JSON only.' },
+          { role: 'user', content: prompt },
+        ],
+        temperature: 0.2,
+      }),
+    });
+    if (!response.ok) {
+      throw new Error((await response.text()) || '请求失败');
+    }
+    const result = await response.json();
+    const content = result.choices?.[0]?.message?.content?.trim();
+    if (!content) {
+      throw new Error('未获取到有效的返回内容');
+    }
+    let parsed;
+    try {
+      parsed = JSON.parse(content);
+    } catch (error) {
+      const match = content.match(/```json([\s\S]*?)```/i);
+      if (match) {
+        parsed = JSON.parse(match[1]);
+      } else {
+        throw error;
+      }
+    }
+    const englishInfo = typeof parsed?.englishInfo === 'string' ? parsed.englishInfo.trim() : info;
+    const features = Array.isArray(parsed?.features)
+      ? parsed.features.map((item) => item && item.toString().trim()).filter(Boolean)
+      : [];
+    return { features, englishInfo };
+  } catch (error) {
+    console.error(error);
+    showToast(`提取特征词失败：${error.message}`, true);
+    return { features: [], englishInfo: info };
+  }
+}
+
+function pickByHeat(pool, count, usedIds = new Set()) {
+  const sorted = (pool || [])
+    .filter((item) => item && item.id)
+    .sort((a, b) => getKeywordHeatValue(b) - getKeywordHeatValue(a));
+  const result = [];
+  if (!sorted.length) return result;
+  let index = 0;
+  while (result.length < count && index < sorted.length * 3) {
+    const keyword = sorted[index % sorted.length];
+    if (!usedIds.has(keyword.id)) {
+      result.push(keyword);
+      usedIds.add(keyword.id);
+    }
+    index += 1;
+  }
+  if (!result.length) {
+    result.push(sorted[0]);
+    usedIds.add(sorted[0].id);
+  }
+  return result;
+}
+
+function findImportantKeywords(phrases, pools, usedIds = new Set()) {
+  if (!Array.isArray(phrases) || !phrases.length) return [];
+  const lowered = phrases.map((item) => item.toLowerCase()).filter(Boolean);
+  const candidates = [...(pools.core || []), ...(pools.feature || [])];
+  const matches = candidates.filter((keyword) => {
+    const text = (keyword.text || '').toLowerCase();
+    return lowered.some((phrase) => phrase && text.includes(phrase));
+  });
+  const ranked = matches
+    .filter((item) => !usedIds.has(item.id))
+    .sort((a, b) => getKeywordHeatValue(b) - getKeywordHeatValue(a));
+  return ranked.slice(0, 3);
+}
+
+function applyKeywordsToContainer(spu, containerType, containerId, keywords, limit) {
+  const ownerKey = getContainerKey(spu.id, containerType, containerId);
+  cleanupTokensForOwner(ownerKey);
+  const keywordIds = (keywords || []).map((item) => item.id).filter(Boolean);
+  const tokenIds = assignTokensToContainer(spu.id, containerType, containerId, keywordIds);
+  while (tokenIds.length > 1 && measureKeywordIdsLength(tokenIds) > limit) {
+    const removed = tokenIds.pop();
+    unregisterTokenKeyword(removed);
+  }
+  const collection = getKeywordCollection(spu, containerType, containerId);
+  if (collection) {
+    collection.splice(0, collection.length, ...tokenIds);
+  }
+}
+
+function applyFreeTextToContainer(spu, containerType, containerId, text, limit) {
+  const ownerKey = getContainerKey(spu.id, containerType, containerId);
+  cleanupTokensForOwner(ownerKey);
+  const words = splitKeywordIntoWords(text);
+  const tokenIds = [];
+  const baseColor = '#ffffff';
+  const textColor = getReadableTextColor(baseColor);
+  for (const word of words) {
+    const tokenId = createTokenFromWord(word, {
+      ownerKey,
+      sourceId: null,
+      color: baseColor,
+      textColor,
+    });
+    if (tokenId) tokenIds.push(tokenId);
+  }
+  while (tokenIds.length > 1 && measureKeywordIdsLength(tokenIds) > limit) {
+    const removed = tokenIds.pop();
+    unregisterTokenKeyword(removed);
+  }
+  const collection = getKeywordCollection(spu, containerType, containerId);
+  if (collection) {
+    collection.splice(0, collection.length, ...tokenIds);
+  }
+}
 
 function buildTitleCombination({
   pools,
@@ -3300,114 +3453,44 @@ async function autoGenerateTitles(spuId) {
     }
   }
 
-  if ((pools.core || []).length < 1) {
+  const brandKeyword = state.keywords.get(FIXED_KEYWORDS.brand.id) || FIXED_KEYWORDS.brand;
+  if (!pools.core.length) {
     showToast('请至少添加 1 个核心词', true);
     return;
   }
-  if ((pools.feature || []).length < 1) {
+  if (!pools.feature.length) {
     showToast('请至少添加 1 个特征词', true);
     return;
   }
-  if ((pools.scene || []).length < 1) {
+  if (!pools.scene.length) {
     showToast('请至少添加 1 个场景词', true);
     return;
   }
 
-  const targets = [
-    {
-      type: 'subtitle',
-      containerType: 'subtitle',
-      containerId: 'subtitle',
-      apply: (keywords) => {
-        spu.subtitleKeywords = keywords;
-      },
-    },
-  ];
-
-  const assignments = [];
-  let skipped = 0;
-
-  for (const target of targets) {
-    if (isContainerLocked(spu.id, target.containerType, target.containerId)) {
-      skipped += 1;
-      continue;
-    }
-    const isSubtitle = target.type === 'subtitle';
-    const limit = getCharacterLimit('subtitle');
-    const colorKeywords = [];
-    const colorText = '';
-
-    let combination = null;
-    const MAX_ATTEMPTS = 24;
-
-    for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
-      const candidate = buildTitleCombination({
-        pools,
-        limit,
-        isSubtitle,
-        colorKeywords,
-        colorText,
-      });
-      if (!candidate) {
-        continue;
-      }
-      combination = candidate;
-      break;
-    }
-
-    if (!combination) {
-      combination = buildLooseTitleCombination({
-        pools,
-        limit,
-        isSubtitle,
-        colorKeywords,
-      });
-    }
-
-    if (!combination) {
-      showToast('未能生成满足要求的标题，请增加词库关键词或调整限制', true);
-      return;
-    }
-
-    assignments.push(() => {
-      const ownerKey = getContainerKey(spu.id, target.containerType, target.containerId);
-      cleanupTokensForOwner(ownerKey);
-      const tokenIds = [];
-      for (const token of combination.tokens || []) {
-        const tokenId = createTokenFromWord(token.text, {
-          ownerKey,
-          sourceId: token.sourceId,
-          color: token.color,
-          textColor: token.textColor,
-        });
-        if (tokenId) {
-          tokenIds.push(tokenId);
-        }
-      }
-      target.apply(tokenIds);
-    });
-  }
-
-  if (!assignments.length) {
-    renderSpu(spuId);
-    if (skipped) {
-      showToast('父标题已锁定，未生成新标题');
-    }
+  if (isContainerLocked(spu.id, 'subtitle', 'subtitle')) {
+    showToast('父标题已锁定，未生成新标题');
     return;
   }
 
-  for (const apply of assignments) {
-    apply();
-  }
+  const { features } = await extractImportantFeatures(spu);
+  const usedIds = new Set();
 
+  const coreKeyword = pickByHeat(pools.core, 1, usedIds)[0];
+  const importantKeywords = findImportantKeywords(features, pools, usedIds);
+  const featureTarget = Math.min(3, Math.max(2, pools.feature.length || 2));
+  const featureKeywords = pickByHeat(pools.feature, featureTarget, usedIds);
+  const sceneKeywords = pickByHeat(pools.scene, 2, usedIds);
+
+  const sequence = [brandKeyword];
+  if (coreKeyword) sequence.push(coreKeyword);
+  sequence.push(...importantKeywords);
+  sequence.push(...featureKeywords);
+  sequence.push(...sceneKeywords);
+
+  applyKeywordsToContainer(spu, 'subtitle', 'subtitle', sequence, getCharacterLimit('subtitle'));
   renderSpu(spuId);
-  if (skipped) {
-    showToast('已生成父标题，跳过锁定区域');
-  } else {
-    showToast('已生成父标题，可在此基础上生成子 SKU 标题');
-  }
+  showToast('已生成父标题，可在此基础上生成子 SKU 标题');
 }
-
 function rotateTokens(tokens, offset) {
   if (!tokens.length) return [];
   const shift = offset % tokens.length;
@@ -3432,6 +3515,7 @@ async function generateChildTitles(spuId) {
 
   let skipped = 0;
   const updates = [];
+  const brandId = FIXED_KEYWORDS.brand.id;
 
   spu.skus.forEach((sku, index) => {
     if (isContainerLocked(spu.id, 'sku', sku.id)) {
@@ -3444,27 +3528,50 @@ async function generateChildTitles(spuId) {
         showToast(`请补充 SKU ${sku.name || ''} 的颜色或尺码信息`, true);
         return false;
       }
-      const rotated = rotateTokens(baseKeywords, index);
+
       const limit = getCharacterLimit('sku');
       const ownerKey = getContainerKey(spu.id, 'sku', sku.id);
       cleanupTokensForOwner(ownerKey);
-      const tokenIds = [];
 
+      const brandTokens = baseKeywords.filter((token) => token.sourceKeywordId === brandId);
+      const nonBrandTokens = baseKeywords.filter((token) => token.sourceKeywordId !== brandId);
+      const coreSourceId = nonBrandTokens
+        .map((token) => state.keywords.get(token.sourceKeywordId))
+        .find((keyword) => keyword?.type === 'core')?.id;
+      const coreTokens = nonBrandTokens.filter((token) => token.sourceKeywordId === coreSourceId);
+      const remainingTokens = nonBrandTokens.filter((token) => token.sourceKeywordId !== coreSourceId);
+      const sceneTokens = remainingTokens.filter((token) => {
+        const source = state.keywords.get(token.sourceKeywordId);
+        return source?.type === 'scene';
+      });
+      const middleTokens = remainingTokens.filter((token) => {
+        const source = state.keywords.get(token.sourceKeywordId);
+        return source?.type !== 'scene';
+      });
+
+      const sequence = [];
+      sequence.push(...brandTokens);
+      sequence.push(...coreTokens);
+      sequence.push(...shuffle(middleTokens));
+      sequence.push(...shuffle(sceneTokens));
+
+      const tokenIds = [];
       const addToken = (token) => {
+        const color = token.color || '#ffffff';
+        const textColor = token.textColor || getReadableTextColor(color);
         const tokenId = createTokenFromWord(token.text, {
           ownerKey,
           sourceId: token.sourceKeywordId || token.id,
-          color: token.color,
-          textColor: token.textColor,
+          color,
+          textColor,
         });
         if (tokenId) tokenIds.push(tokenId);
       };
 
-      rotated.forEach(addToken);
+      sequence.forEach(addToken);
       [ensured.color, ensured.size].filter(Boolean).forEach(addToken);
 
-      // Trim from the end if over limit while keeping at least one token
-      while (tokenIds.length > 1 && calculateContainerLength(tokenIds) > limit) {
+      while (tokenIds.length > 1 && measureKeywordIdsLength(tokenIds) > limit) {
         const removedId = tokenIds.pop();
         unregisterTokenKeyword(removedId);
       }
@@ -3487,6 +3594,70 @@ async function generateChildTitles(spuId) {
     showToast('所有子 SKU 标题均被锁定，未生成新内容', true);
   } else {
     showToast('未能生成子 SKU 标题，请检查父标题或颜色尺码信息', true);
+  }
+}
+
+async function optimizeSingleTitle(spuId, containerType, containerId) {
+  const spu = state.spus.get(spuId);
+  if (!spu) return;
+  if (isContainerLocked(spuId, containerType, containerId)) {
+    showToast('该标题已锁定，未执行优化');
+    return;
+  }
+
+  const collection = getKeywordCollection(spu, containerType, containerId);
+  const label = getContainerLabel(containerType);
+  const limit = getCharacterLimit(containerType === 'subtitle' ? 'subtitle' : 'sku');
+  const originalText = buildTextFromKeywordIds(collection);
+  if (!originalText) {
+    showToast(`请先填写${label}`);
+    return;
+  }
+
+  const apiKey = apiKeyInput.value.trim();
+  if (!apiKey) {
+    alert('请先输入有效的 DeepSeek API Key。');
+    return;
+  }
+
+  try {
+    const prompt =
+      `请在不超过 ${limit} 个字符的前提下优化以下英文标题，` +
+      '遵循亚马逊 A9 抓取逻辑，提升可读性，可适当加入少量连词或介词；' +
+      '保持品牌 Popilush 在开头，保留原词的大致顺序；删除重复单词（单复数视为相同），' +
+      '移除竞品品牌词和亚马逊违禁词，输出优化后的英文标题文本即可：\n' +
+      originalText;
+
+    const response = await fetch('https://api.deepseek.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: 'deepseek-chat',
+        messages: [
+          { role: 'system', content: 'You refine Amazon listing titles. Reply with the optimized title only.' },
+          { role: 'user', content: prompt },
+        ],
+        temperature: 0.4,
+      }),
+    });
+    if (!response.ok) {
+      throw new Error((await response.text()) || '请求失败');
+    }
+    const result = await response.json();
+    const content = result.choices?.[0]?.message?.content?.trim();
+    if (!content) {
+      throw new Error('未获取到有效的返回内容');
+    }
+    const optimized = transformTitleText(content);
+    applyFreeTextToContainer(spu, containerType, containerId, optimized, limit);
+    renderSpu(spuId);
+    showToast('AI 已优化标题');
+  } catch (error) {
+    console.error(error);
+    showToast(`AI 优化失败：${error.message}`, true);
   }
 }
 
@@ -5421,9 +5592,6 @@ if (searchPreviewElements.frequencyClear) {
   searchPreviewElements.frequencyClear.addEventListener('click', clearSearchFrequencies);
 }
 
-if (previewElements.aiButton) {
-  previewElements.aiButton.addEventListener('click', reviewPreviewWithAI);
-}
 
 if (previewElements.container) {
   previewElements.container.addEventListener('click', (event) => {

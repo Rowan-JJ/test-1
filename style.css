@@ -1450,16 +1450,6 @@ button.text.danger:hover {
   font-size: 0.82rem;
 }
 
-#preview-ai-review {
-  background: rgba(250, 200, 60, 0.24);
-  color: #8a5a00;
-  border: 1px solid rgba(250, 200, 60, 0.45);
-}
-
-#preview-ai-review:hover {
-  background: rgba(250, 200, 60, 0.32);
-}
-
 .preview-list {
   display: flex;
   flex-direction: column;
