@@ -3052,11 +3052,9 @@ function buildTitleCombination({
   limit,
   isSubtitle,
   colorKeywords,
-  colorKeywordIds,
   colorText,
 }) {
   const brandKeyword = state.keywords.get(FIXED_KEYWORDS.brand.id) || FIXED_KEYWORDS.brand;
-  const trailingKeywords = Array.isArray(colorKeywords) ? colorKeywords : [];
   const requiredCounts = {
     core: 2,
     feature: 3,
@@ -3073,164 +3071,128 @@ function buildTitleCombination({
     { type: 'scene' },
   ];
 
-  const slotGroups = slotPlan.reduce((groups, slot, index) => {
-    if (!groups[slot.type]) {
-      groups[slot.type] = [];
-    }
-    groups[slot.type].push(index);
-    return groups;
-  }, {});
+  const connectors = ['for', 'and', 'with'];
 
-  const baseWordCounts = new Map();
-  applyKeywordWordCount(brandKeyword, baseWordCounts);
-  for (const trailing of trailingKeywords) {
-    applyKeywordWordCount(trailing, baseWordCounts);
+  const brandTokens = new Set(getKeywordWordTokens(brandKeyword));
+  const trailingTokens = new Set();
+  for (const trailing of colorKeywords || []) {
+    for (const token of getKeywordWordTokens(trailing)) {
+      trailingTokens.add(token);
+    }
   }
 
-  const relaxLevels = [
-    { allowRootOverlap: false, allowEdgeDuplicates: false, allowBoundaryDuplicates: false },
-    { allowRootOverlap: true, allowEdgeDuplicates: false, allowBoundaryDuplicates: false },
-    { allowRootOverlap: true, allowEdgeDuplicates: true, allowBoundaryDuplicates: true },
-  ];
+  const MAX_ATTEMPTS = 24;
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
+    const selections = [];
+    const usedWords = new Set([...brandTokens, ...trailingTokens]);
 
-  const heatComparator = (a, b) => {
-    const heatDiff = getKeywordHeatValue(b) - getKeywordHeatValue(a);
-    if (heatDiff !== 0) return heatDiff;
-    return a.text.localeCompare(b.text, 'zh-Hans-CN');
-  };
+    let failed = false;
 
-  for (const relax of relaxLevels) {
-    const MAX_ATTEMPTS = 24;
-    for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
-      const selections = {};
-      const allowRepeatMap = {};
-      let selectionFailed = false;
-
-      for (const [type, count] of Object.entries(requiredCounts)) {
-        const pool = pools[type];
-        if (!Array.isArray(pool) || !pool.length) {
-          return null;
-        }
-        const allowRepeat = pool.length < count;
-        allowRepeatMap[type] = allowRepeat;
-        const basePool = shuffle(pool.slice());
-        const expandedPool = basePool.slice();
-        if (allowRepeat) {
-          const sortedByHeat = pool.slice().sort(heatComparator);
-          while (expandedPool.length < count) {
-            for (const keyword of sortedByHeat) {
-              expandedPool.push(keyword);
-              if (expandedPool.length >= count) {
-                break;
-              }
-            }
-            if (!sortedByHeat.length) {
-              break;
-            }
-          }
-        }
-        const chosen = [];
-        for (const keyword of expandedPool) {
-          if (chosen.length >= count) break;
-          if (!keyword) continue;
-          if (!allowRepeat && chosen.some((item) => item.id === keyword.id)) continue;
-          if (!isSubtitle && colorText && keywordConflictsWithColor(keyword, colorText)) continue;
-          chosen.push(keyword);
-        }
-        if (chosen.length < count) {
-          selectionFailed = true;
-          break;
-        }
-        selections[type] = chosen
-          .slice()
-          .sort((a, b) => {
-            const heatDiff = getKeywordHeatValue(b) - getKeywordHeatValue(a);
-            if (heatDiff !== 0) return heatDiff;
-            return a.text.localeCompare(b.text, 'zh-Hans-CN');
-          });
+    for (const slot of slotPlan) {
+      const pool = pools[slot.type];
+      if (!Array.isArray(pool) || !pool.length) {
+        failed = true;
+        break;
       }
 
-      if (selectionFailed) {
-        continue;
-      }
-
-      const selectedIds = [brandKeyword.id];
-      const selectedWords = [];
-      const usedCounts = new Map([[brandKeyword.id, 1]]);
-      const wordCounts = new Map(baseWordCounts);
-      const typeCursors = { core: 0, feature: 0, scene: 0 };
-
-      let invalid = false;
-      for (const slot of slotPlan) {
-        const list = selections[slot.type];
-        const cursor = typeCursors[slot.type] || 0;
-        const keyword = list?.[cursor];
-        typeCursors[slot.type] = cursor + 1;
-        if (!keyword) {
-          invalid = true;
-          break;
-        }
-        const repeatAllowed = !!allowRepeatMap[slot.type];
-        const currentUsage = usedCounts.get(keyword.id) || 0;
-        if (!repeatAllowed && currentUsage > 0) {
-          invalid = true;
-          break;
-        }
-        if (keywordWouldExceedWordLimit(keyword, wordCounts, WORD_REPEAT_LIMIT)) {
-          invalid = true;
-          break;
-        }
-        if (!relax.allowBoundaryDuplicates && selectedWords.length && keywordsCauseBoundaryDuplicate(selectedWords[selectedWords.length - 1], keyword)) {
-          invalid = true;
-          break;
-        }
-
-        const prospectiveIds = selectedIds.concat(keyword.id);
-        const prospectiveLength = computeTitleCandidateLength(prospectiveIds, {
-          isSubtitle,
-          colorKeywordIds,
+      const ranked = pool
+        .filter((keyword) => !(colorText && keywordConflictsWithColor(keyword, colorText)))
+        .map((keyword) => {
+          const tokens = getKeywordWordTokens(keyword);
+          const newTokens = tokens.filter((token) => !usedWords.has(token));
+          return {
+            keyword,
+            newCount: newTokens.length,
+            heat: getKeywordHeatValue(keyword),
+            tokens,
+          };
+        })
+        .sort((a, b) => {
+          if (b.newCount !== a.newCount) return b.newCount - a.newCount;
+          if (b.heat !== a.heat) return b.heat - a.heat;
+          return Math.random() - 0.5;
         });
-        if (prospectiveLength > limit) {
-          invalid = true;
-          break;
-        }
 
-        selectedWords.push(keyword);
-        selectedIds.push(keyword.id);
-        usedCounts.set(keyword.id, currentUsage + 1);
-        applyKeywordWordCount(keyword, wordCounts);
+      const choice = ranked.find((item) => item.tokens.some((token) => !usedWords.has(token))) || ranked[0];
+      if (!choice) {
+        failed = true;
+        break;
       }
 
-      if (invalid) {
-        continue;
+      selections.push(choice.keyword);
+      for (const token of choice.tokens) {
+        usedWords.add(token);
       }
-
-      const coreIndexes = slotGroups.core || [];
-      const coreWords = coreIndexes.map((index) => selectedWords[index]).filter(Boolean);
-      if (!relax.allowRootOverlap && hasRootOverlap(coreWords)) {
-        continue;
-      }
-
-      if (!relax.allowEdgeDuplicates && hasEdgeDuplicates(selectedWords)) {
-        continue;
-      }
-
-      const finalLength = computeTitleCandidateLength(selectedIds, {
-        isSubtitle,
-        colorKeywordIds,
-      });
-      if (finalLength > limit) {
-        continue;
-      }
-
-      const heat = selectedWords.reduce((total, keyword) => total + getKeywordHeatValue(keyword), 0);
-      return {
-        ids: selectedIds,
-        words: selectedWords,
-        length: finalLength,
-        heat,
-      };
     }
+
+    if (failed || selections.length !== slotPlan.length) {
+      continue;
+    }
+
+    const segments = [];
+    const usedWordsForTokens = new Set();
+    const allKeywords = [brandKeyword, ...selections];
+    if (!isSubtitle && Array.isArray(colorKeywords)) {
+      allKeywords.push(...colorKeywords);
+    }
+
+    let connectorIndex = 0;
+    for (let i = 0; i < allKeywords.length; i += 1) {
+      const keyword = allKeywords[i];
+      const tokens = splitKeywordIntoWords(keyword.text);
+      const keywordColor = keyword.color || '#ffffff';
+      const keywordTextColor = keyword.textColor || getReadableTextColor(keywordColor);
+
+      if (segments.length && tokens.length) {
+        const connector = connectors[connectorIndex % connectors.length];
+        connectorIndex += 1;
+        const norm = normalizeWordToken(connector);
+        if (!usedWordsForTokens.has(norm)) {
+          segments.push({
+            text: connector,
+            color: '#e8f1ff',
+            textColor: '#1f2933',
+            sourceId: '__connector',
+          });
+          usedWordsForTokens.add(norm);
+        }
+      }
+
+      for (const word of tokens) {
+        const norm = normalizeWordToken(word);
+        if (!norm) continue;
+        if (usedWordsForTokens.has(norm)) continue;
+        segments.push({
+          text: word,
+          color: keywordColor,
+          textColor: keywordTextColor,
+          sourceId: keyword.id,
+        });
+        usedWordsForTokens.add(norm);
+      }
+    }
+
+    if (!segments.length) {
+      continue;
+    }
+
+    const length = segments.reduce((total, seg, index) => {
+      const len = (seg.text || '').trim().length;
+      if (!len) return total;
+      if (index > 0) {
+        return total + len + 1;
+      }
+      return total + len;
+    }, 0);
+
+    if (length > limit) {
+      continue;
+    }
+
+    return {
+      tokens: segments,
+      length,
+    };
   }
 
   return null;
@@ -3300,7 +3262,6 @@ async function autoGenerateTitles(spuId) {
     const isSubtitle = target.type === 'subtitle';
     const limit = getCharacterLimit(isSubtitle ? 'subtitle' : 'sku');
     let colorKeywords = [];
-    let colorKeywordIds = [];
     let colorText = '';
 
     if (!isSubtitle) {
@@ -3310,7 +3271,6 @@ async function autoGenerateTitles(spuId) {
         return;
       }
       colorKeywords = [ensured.color, ensured.size].filter(Boolean);
-      colorKeywordIds = colorKeywords.map((item) => item.id);
       colorText = target.sku?.colorText || '';
     }
 
@@ -3323,7 +3283,6 @@ async function autoGenerateTitles(spuId) {
         limit,
         isSubtitle,
         colorKeywords,
-        colorKeywordIds,
         colorText,
       });
       if (!candidate) {
@@ -3338,15 +3297,22 @@ async function autoGenerateTitles(spuId) {
       return;
     }
 
-    const finalIds = !isSubtitle && colorKeywordIds.length
-      ? combination.ids.concat(colorKeywordIds)
-      : combination.ids.slice();
-
-    const appliedIds = finalIds.slice();
     assignments.push(() => {
       const ownerKey = getContainerKey(spu.id, target.containerType, target.containerId);
       cleanupTokensForOwner(ownerKey);
-      target.apply(appliedIds.slice());
+      const tokenIds = [];
+      for (const token of combination.tokens || []) {
+        const tokenId = createTokenFromWord(token.text, {
+          ownerKey,
+          sourceId: token.sourceId,
+          color: token.color,
+          textColor: token.textColor,
+        });
+        if (tokenId) {
+          tokenIds.push(tokenId);
+        }
+      }
+      target.apply(tokenIds);
     });
   }
 
