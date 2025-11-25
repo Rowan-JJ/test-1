@@ -298,7 +298,7 @@
           <button class="text danger sku-delete" type="button">删除 SKU</button>
         </div>
       </div>
-      <div class="title-dropzone" data-sku-id="">
+      <div class="title-dropzone" data-sku-id="" tabindex="0">
         <p class="placeholder">拖放关键词到此处构建标题</p>
         <div class="dropzone-footer">
           <button class="icon lock-dropzone" type="button" aria-pressed="false" title="锁定或解锁标题">🔓</button>
@@ -327,6 +327,7 @@
           data-container-type="search"
           data-container-id=""
           data-sku-id=""
+          tabindex="0"
         >
           <p class="placeholder">拖放关键词组成 Search Term</p>
           <div class="dropzone-footer">
@@ -364,7 +365,12 @@
         <div class="subtitle-header">
           <h4>父标题</h4>
         </div>
-        <div class="title-dropzone subtitle-dropzone" data-container-type="subtitle" data-container-id="subtitle">
+        <div
+          class="title-dropzone subtitle-dropzone"
+          data-container-type="subtitle"
+          data-container-id="subtitle"
+          tabindex="0"
+        >
           <p class="placeholder">拖放关键词组成 SPU 父标题</p>
           <div class="dropzone-footer">
             <button class="icon lock-dropzone" type="button" aria-pressed="false" title="锁定或解锁父标题">🔓</button>

@@ -2434,6 +2434,28 @@ function handleDrop(event) {
   }
 }
 
+function handleDropzonePaste(event) {
+  const text = event.clipboardData?.getData('text');
+  if (!text) return;
+  event.preventDefault();
+
+  const dropzone = event.currentTarget;
+  const spuId = dropzone.closest('[data-spu-id]')?.dataset.spuId;
+  const containerType = dropzone.dataset.containerType || 'sku';
+  const containerId = dropzone.dataset.containerId || dropzone.dataset.skuId;
+  if (!spuId) return;
+  if (isContainerLocked(spuId, containerType, containerId)) {
+    showToast('该区域已锁定，无法粘贴', true);
+    return;
+  }
+  const spu = state.spus.get(spuId);
+  if (!spu) return;
+  const limit = getCharacterLimit(containerType);
+  applyFreeTextToContainer(spu, containerType, containerId, text, limit);
+  renderSpu(spuId);
+  showToast('已粘贴文本并拆分为可编辑词块');
+}
+
 function insertKeywordIntoContainer(spuId, containerType, containerId, keywordId, beforeKeywordId) {
   const spu = state.spus.get(spuId);
   if (!spu) return;
@@ -2993,9 +3015,13 @@ function renderSku(spuId, sku) {
 }
 
 function bindDropzoneEvents(dropzone) {
+  if (!dropzone.hasAttribute('tabindex')) {
+    dropzone.setAttribute('tabindex', '0');
+  }
   dropzone.addEventListener('dragover', handleDragOver);
   dropzone.addEventListener('dragleave', handleDragLeave);
   dropzone.addEventListener('drop', handleDrop);
+  dropzone.addEventListener('paste', handleDropzonePaste);
 }
 
 function bindSpuEvents(card, spuId) {
@@ -3724,6 +3750,12 @@ async function generateSearchTerms(spuId, skuId, options = {}) {
     }
     return false;
   }
+  const titleText = buildTextFromKeywordIds(titleKeywordIds);
+  const titleWordSet = new Set(
+    splitKeywordIntoWords(titleText)
+      .map((word) => normalizeWordForMatch(word))
+      .filter(Boolean),
+  );
   if (!Array.isArray(sku.searchKeywords)) {
     sku.searchKeywords = [];
   }
@@ -3750,6 +3782,9 @@ async function generateSearchTerms(spuId, skuId, options = {}) {
     const type = KEYWORD_TYPES.some((item) => item.value === keyword.type) ? keyword.type : 'core';
     if (usedKeywordIds.has(keyword.id)) continue;
     if (colorText && keywordConflictsWithColor(keyword, colorText)) continue;
+    const keywordTokens = getKeywordWordTokens(keyword);
+    const overlapsTitle = keywordTokens.some((token) => titleWordSet.has(token));
+    if (overlapsTitle) continue;
     if (!pools[type]) pools[type] = [];
     pools[type].push(keyword);
   }
@@ -3757,7 +3792,7 @@ async function generateSearchTerms(spuId, skuId, options = {}) {
   const availableCount = Object.values(pools).reduce((total, list) => total + list.length, 0);
   if (!availableCount) {
     if (!options.silent) {
-      showToast('暂无可用于该 SKU 的剩余关键词', true);
+      showToast('标题已覆盖全部可用关键词，请添加新词后再生成 Search Term', true);
     }
     return false;
   }
