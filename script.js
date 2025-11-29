@@ -23,6 +23,8 @@ const TYPE_ALIASES = {
   小语种词: 'minor',
 };
 
+const POPILUSH_PINK = '#F783AC';
+
 const DEFAULT_TYPE_COLORS = {
   core: '#FA5252',
   feature: '#4C6EF5',
@@ -149,7 +151,8 @@ const FIXED_KEYWORDS = {
     id: '__fixed_brand',
     text: 'Popilush',
     type: 'core',
-    color: '#FA5252',
+    color: POPILUSH_PINK,
+    textColor: '#1f2933',
     virtual: true,
     fixed: true,
   },
@@ -157,7 +160,8 @@ const FIXED_KEYWORDS = {
     id: '__fixed_size',
     text: 'Color Size',
     type: 'feature',
-    color: '#4C6EF5',
+    color: POPILUSH_PINK,
+    textColor: '#1f2933',
     virtual: true,
     fixed: true,
   },
@@ -607,7 +611,7 @@ function trimDuplicateTokens(spuId, containerType, containerId) {
     showToast(`请先对${labelMid}执行逐词细分`, true);
     return;
   }
-  const limit = Math.max(WORD_REPEAT_LIMIT, 1);
+  const limit = 1;
   const totals = new Map();
   for (const keyword of tokenKeywords) {
     const key = (keyword.text || '').trim().toLowerCase();
@@ -1152,7 +1156,8 @@ async function ensureColorSizeKeywordsForSku(sku) {
   const { color, size } = resolved;
   if (!color || !size) return null;
 
-  const featureColor = state.keywordTypeColors.feature || DEFAULT_TYPE_COLORS.feature;
+  const featureColor = POPILUSH_PINK;
+  const featureTextColor = '#1f2933';
   const colorId = `__color_${sanitizeKeywordIdSegment(color)}`;
   const sizeId = `__size_${sanitizeKeywordIdSegment(size)}`;
 
@@ -1163,6 +1168,7 @@ async function ensureColorSizeKeywordsForSku(sku) {
     color: featureColor,
     virtual: true,
     heatValue: Number.NEGATIVE_INFINITY,
+    textColor: featureTextColor,
   };
 
   const sizeKeyword = {
@@ -1172,6 +1178,7 @@ async function ensureColorSizeKeywordsForSku(sku) {
     color: featureColor,
     virtual: true,
     heatValue: Number.NEGATIVE_INFINITY,
+    textColor: featureTextColor,
   };
 
   const ensureKeyword = (keyword) => {
@@ -4379,17 +4386,22 @@ function renderPreviewList() {
     for (const sku of skuList) {
       const skuEntry = entry.skus.get(sku.id);
       if (!skuEntry) continue;
+      const skuCard = document.createElement('div');
+      skuCard.className = 'preview-sku-card';
+
       const skuNameEl = document.createElement('h4');
       skuNameEl.className = 'preview-sku-name';
       skuNameEl.textContent = skuEntry.skuName;
-      group.appendChild(skuNameEl);
+      skuCard.appendChild(skuNameEl);
 
       if (skuEntry.title) {
-        group.appendChild(createPreviewItem(skuEntry.title, 'SKU 标题', 'titles'));
+        skuCard.appendChild(createPreviewItem(skuEntry.title, 'SKU 标题', 'titles'));
       }
       if (skuEntry.search) {
-        group.appendChild(createPreviewItem(skuEntry.search, 'Search Term', 'search'));
+        skuCard.appendChild(createPreviewItem(skuEntry.search, 'Search Term', 'search'));
       }
+
+      group.appendChild(skuCard);
     }
 
     fragment.appendChild(group);
